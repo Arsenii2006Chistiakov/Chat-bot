@@ -605,7 +605,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 #     title="Success", border_style="green"
                 # ))
             else:
-                # Use stored embedding if available
+                # Use stored embedding if available, otherwise set to None for text-only search
                 if hasattr(self, 'current_embedding') and self.current_embedding is not None:
                     query_vector = self.current_embedding.numpy().tolist()
                     console.print(Panel(
@@ -613,12 +613,11 @@ Provide only the JSON output. Do not include any other text or explanation.
                         title="Info", border_style="blue"
                     ))
                 else:
+                    query_vector = None
                     console.print(Panel(
-                        "[red]❌ No audio file provided or loaded![/red]\n"
-                        "Use --file parameter or load audio first with /load",
-                        title="Error", border_style="red"
+                        "[blue]Performing text-only search (no audio embedding)[/blue]",
+                        title="Info", border_style="blue"
                     ))
-                    return
             
             # Process prompt if provided
             if prompt:
@@ -790,7 +789,7 @@ Provide only the JSON output. Do not include any other text or explanation.
             "• /search - Find similar songs using vector search (requires loaded audio)\n"
             "• /search --file audio.mp3 --prompt 'in Germany' - Search with file and filters\n"
             "• /search --file audio.mp3 - Search with new file only\n"
-            "• /search --prompt 'Latin songs' - Search with filters only\n\n"
+            "• /search --prompt 'Latin songs' - Text-only search with filters\n\n"
             "[yellow]Type 'quit' or 'exit' to end the session.[/yellow]",
             title="Welcome", border_style="blue"
         ))
