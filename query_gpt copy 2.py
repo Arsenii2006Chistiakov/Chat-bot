@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+"""check point with the bot being able to laod music, perform pure vector search and only verbal search"""
+
+
+
+
+
+
+
+
+
 """
 MongoDB-Connected Chatbot
 A CLI chatbot that uses an LLM to translate natural language into
@@ -540,97 +550,31 @@ Provide only the JSON output. Do not include any other text or explanation.
             console.print(f"[red]Error parsing search parameters: {e}[/red]")
             return {"filters": {}, "limit": 10, "description": "Simple music search"}
 
-    def _parse_search_command(self, user_input: str) -> tuple:
-        """
-        Parse /search command with optional --file and --prompt parameters.
-        
-        Args:
-            user_input (str): Raw user input (e.g., "/search --file audio.mp3 --prompt in Germany")
-            
-        Returns:
-            tuple: (file_path, prompt) where either can be None
-        """
-        file_path = None
-        prompt = None
-        
-        # Remove /search prefix
-        command = user_input[8:].strip()
-        
-        if not command:
-            return None, None
-        
-        # Parse arguments
-        parts = command.split()
-        i = 0
-        while i < len(parts):
-            if parts[i] == "--file" and i + 1 < len(parts):
-                file_path = parts[i + 1]
-                i += 2
-            elif parts[i] == "--prompt" and i + 1 < len(parts):
-                # Collect all remaining parts as the prompt
-                prompt = " ".join(parts[i + 1:])
-                break
-            else:
-                i += 1
-        
-        return file_path, prompt
-
-    async def _handle_search_command(self, file_path: str = None, prompt: str = None, limit: int = 10):
-        """Handle the /search command with optional --file and --prompt parameters."""
+    async def _handle_search_command(self, search_comment: str = "", limit: int = 10):
+        """Handle the /search command to perform vector search on music embeddings."""
         try:
-            query_vector = None
-            search_comment = ""
-            
-            # Process file if provided
-            if file_path:
+            if not hasattr(self, 'current_embedding') or self.current_embedding is None:
                 console.print(Panel(
-                    f"[bold blue]🎵 Processing Audio File[/bold blue]\n\n"
-                    f"File: {file_path}\n"
-                    f"Extracting audio embedding...",
-                    title="Audio Processing", border_style="blue"
+                    "[red]❌ No audio file loaded! Please use /load first.[/red]\n"
+                    "Example: /load /path/to/your/audio/file.mp3",
+                    title="Error", border_style="red"
+                ))
+                return
+            
+            # Convert embedding to list for MongoDB
+            query_vector = self.current_embedding.numpy().tolist()
+            
+            # Determine search parameters based on comment
+            if search_comment.strip():
+                console.print(Panel(
+                    f"[bold blue]🔍 Analyzing Search Request[/bold blue]\n\n"
+                    f"Comment: '{search_comment}'\n"
+                    f"Determining additional search parameters...",
+                    title="Processing", border_style="blue"
                 ))
                 
-                # Initialize MERT embedder if not already done
-                if self.mert_embedder is None:
-                    self.mert_embedder = MERTEmbedder()
-                
-                # Process the file and get embedding
-                embedding = self.mert_embedder.process_local_file(file_path)
-                query_vector = embedding.numpy().tolist()
-                
-                # console.print(Panel(
-                #     f"[bold green]✅ Audio Processing Complete![/bold green]\n\n"
-                #     f"Embedding shape: {embedding.shape}\n"
-                #     f"Embedding values range: {embedding.min().item():.4f} to {embedding.max().item():.4f}",
-                #     title="Success", border_style="green"
-                # ))
-            else:
-                # Use stored embedding if available
-                if hasattr(self, 'current_embedding') and self.current_embedding is not None:
-                    query_vector = self.current_embedding.numpy().tolist()
-                    console.print(Panel(
-                        "[blue]Using previously loaded audio embedding[/blue]",
-                        title="Info", border_style="blue"
-                    ))
-                else:
-                    console.print(Panel(
-                        "[red]❌ No audio file provided or loaded![/red]\n"
-                        "Use --file parameter or load audio first with /load",
-                        title="Error", border_style="red"
-                    ))
-                    return
-            
-            # Process prompt if provided
-            if prompt:
-                # console.print(Panel(
-                #     f"[bold blue]🔍 Analyzing Search Request[/bold blue]\n\n"
-                #     f"Prompt: '{prompt}'\n"
-                #     f"Determining additional search parameters...",
-                #     title="Processing", border_style="blue"
-                # ))
-                
                 # Get search parameters from LLM
-                search_params = await self._get_search_parameters_from_llm(prompt)
+                search_params = await self._get_search_parameters_from_llm(search_comment)
                 filters = search_params.get("filters", {})
                 limit = search_params.get("limit", 10)
                 description = search_params.get("description", "Custom search")
@@ -645,72 +589,50 @@ Provide only the JSON output. Do not include any other text or explanation.
             else:
                 filters = {}
                 description = "Simple music similarity search"
-                # console.print(Panel(
-                #     f"[bold blue]🔍 Performing Simple Music Vector Search[/bold blue]\n\n"
-                #     f"Searching for similar songs...\n"
-                #     f"Limit: {limit} results",
-                #     title="Vector Search", border_style="blue"
-                # ))
+                console.print(Panel(
+                    f"[bold blue]🔍 Performing Simple Music Vector Search[/bold blue]\n\n"
+                    f"Searching for songs similar to your loaded audio...\n"
+                    f"Limit: {limit} results",
+                    title="Vector Search", border_style="blue"
+                ))
             
             # Build vector search pipeline with optional filters
-            if query_vector:
-                pipeline = [
-                    {
-                        "$vectorSearch": {
-                            "index": "lyrics_n_music_search",
-                            "path": "music_embedding",
-                            "queryVector": query_vector,
-                            "numCandidates": 100,
-                            "limit": limit,
-                            "filter": filters if filters else None
-                        }
-                    },
-                    {
-                        "$addFields": {
-                            "musicScore": {"$meta": "vectorSearchScore"}
-                        }
-                    },
-                    {
-                        "$project": {
-                            "_id": 1,
-                            "song_id": 1,
-                            "song_name": 1,
-                            "artist_name": 1,
-                            "lyrics": 1,
-                            "genres": 1,
-                            "musicScore": 1,
-                            "first_seen": 1,
-                            "charts": 1,
-                            "language_code": 1,
-                            "audio_metadata": 1
-                        }
-                    },
-                    {
-                        "$sort": {"musicScore": -1}
+            pipeline = [
+                {
+                    "$vectorSearch": {
+                        "index": "lyrics_n_music_search",
+                        "path": "music_embedding",
+                        "queryVector": query_vector,
+                        "numCandidates": 100,
+                        "limit": limit,
+                        "filter": filters if filters else None
                     }
-                ]
-            else:
-                # Perform a simple MongoDB find query using only filters (no vector search)
-                pipeline = [
-                    {
-                        "$match": filters if filters else {}
-                    },
-                    {
-                        "$project": {
-                            "_id": 1,
-                            "song_id": 1,
-                            "song_name": 1,
-                            "artist_name": 1,
-                            "lyrics": 1,
-                            "genres": 1,
-                            "first_seen": 1,
-                            "charts": 1,
-                            "language_code": 1,
-                            "audio_metadata": 1
-                        }
+                },
+                {
+                    "$addFields": {
+                        "musicScore": {"$meta": "vectorSearchScore"}
                     }
-                ]
-                
+                },
+                {
+                    "$project": {
+                        "_id": 1,
+                        "song_id": 1,
+                        "song_name": 1,
+                        "artist_name": 1,
+                        "lyrics": 1,
+                        "genres": 1,
+                        "musicScore": 1,
+                        "first_seen": 1,
+                        "charts": 1,
+                        "language_code": 1,
+                        "audio_metadata": 1
+                    }
+                },
+                {
+                    "$sort": {"musicScore": -1}
+                }
+            ]
+            
             results = list(self.collection.aggregate(pipeline))
             
             if not results:
@@ -788,9 +710,7 @@ Provide only the JSON output. Do not include any other text or explanation.
             "[bold green]Special Commands:[/bold green]\n"
             "• /load local/path/to/file - Preprocess an audio file with MERT\n"
             "• /search - Find similar songs using vector search (requires loaded audio)\n"
-            "• /search --file audio.mp3 --prompt 'in Germany' - Search with file and filters\n"
-            "• /search --file audio.mp3 - Search with new file only\n"
-            "• /search --prompt 'Latin songs' - Search with filters only\n\n"
+            "• /search comment - Find similar songs with additional filters (e.g., 'in Germany', 'Latin songs')\n\n"
             "[yellow]Type 'quit' or 'exit' to end the session.[/yellow]",
             title="Welcome", border_style="blue"
         ))
@@ -820,9 +740,13 @@ Provide only the JSON output. Do not include any other text or explanation.
 
                 # Check for /search command
                 if user_input.startswith('/search'):
-                    # Parse the search command
-                    file_path, prompt = self._parse_search_command(user_input)
-                    await self._handle_search_command(file_path, prompt)
+                    if user_input == '/search':
+                        # Simple search without comment
+                        await self._handle_search_command()
+                    else:
+                        # Search with comment
+                        search_comment = user_input[8:].strip()  # Remove '/search ' prefix
+                        await self._handle_search_command(search_comment)
                     continue
 
                 # Use a typing indicator while the LLM and DB are working
