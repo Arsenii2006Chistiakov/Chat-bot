@@ -652,7 +652,10 @@ Provide only the JSON output. Do not include any other text or explanation.
                 # ))
             
             # Build vector search pipeline with optional filters
-            if query_vector and filters!={}:
+            if query_vector:
+                # Prepare filter for vector search - only include if not empty
+                vector_filter = filters if filters and filters != {} else None
+                
                 pipeline = [
                     {
                         "$vectorSearch": {
@@ -661,7 +664,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                             "queryVector": query_vector,
                             "numCandidates": 100,
                             "limit": limit,
-                            "filter": filters if filters else None
+                            "filter": vector_filter
                         }
                     },
                     {
@@ -692,7 +695,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 # Perform a simple MongoDB find query using only filters (no vector search)
                 pipeline = [
                     {
-                        "$match": filters if filters else {}
+                        "$match": filters if filters and filters != {} else {}
                     },
                     {
                         "$project": {
@@ -707,6 +710,9 @@ Provide only the JSON output. Do not include any other text or explanation.
                             "language_code": 1,
                             "audio_metadata": 1
                         }
+                    },
+                    {
+                        "$limit": limit
                     }
                 ]
                 
