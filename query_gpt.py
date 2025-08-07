@@ -653,19 +653,22 @@ Provide only the JSON output. Do not include any other text or explanation.
             
             # Build vector search pipeline with optional filters
             if query_vector:
-                # Prepare filter for vector search - only include if not empty
-                vector_filter = filters if filters and filters != {} else None
+                # Build vector search stage - only include filter if it's not empty
+                vector_search_stage = {
+                    "index": "lyrics_n_music_search",
+                    "path": "music_embedding",
+                    "queryVector": query_vector,
+                    "numCandidates": 100,
+                    "limit": limit
+                }
+                
+                # Only add filter if it's not empty
+                if filters and filters != {}:
+                    vector_search_stage["filter"] = filters
                 
                 pipeline = [
                     {
-                        "$vectorSearch": {
-                            "index": "lyrics_n_music_search",
-                            "path": "music_embedding",
-                            "queryVector": query_vector,
-                            "numCandidates": 100,
-                            "limit": limit,
-                            "filter": vector_filter
-                        }
+                        "$vectorSearch": vector_search_stage
                     },
                     {
                         "$addFields": {
