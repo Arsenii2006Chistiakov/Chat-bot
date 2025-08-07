@@ -75,7 +75,7 @@ class MERTEmbedder:
         self.target_sr = target_sr
         self.snippet_duration = snippet_duration
         
-        console.print(f"[green]Initializing MERT model on {device}[/green]")
+        #console.print(f"[green]Initializing MERT model on {device}[/green]")
         
         # Load MERT model and processor
         self.mert_model = AutoModel.from_pretrained(
@@ -89,7 +89,7 @@ class MERTEmbedder:
         )
         
         self.mert_model.eval()
-        console.print("[green]MERT model initialized successfully[/green]")
+        #console.print("[green]MERT model initialized successfully[/green]")
 
     def _extract_middle_snippet_local(self, audio_path: str) -> torch.Tensor:
         """
@@ -149,15 +149,15 @@ class MERTEmbedder:
             if not audio_path.exists():
                 raise FileNotFoundError(f"Audio file not found: {audio_path}")
             
-            console.print(f"[blue]Processing local file: {audio_path}[/blue]")
+            #console.print(f"[blue]Processing local file: {audio_path}[/blue]")
             
             # Extract middle snippet
             waveform = self._extract_middle_snippet_local(audio_path)
             
             # Print waveform shape for debugging
-            console.print(f"[yellow]Waveform shape: {waveform.shape}[/yellow]")
-            console.print(f"[yellow]Sample rate: {self.target_sr} Hz[/yellow]")
-            console.print(f"[yellow]Duration: {waveform.shape[1] / self.target_sr:.2f} seconds[/yellow]")
+            # console.print(f"[yellow]Waveform shape: {waveform.shape}[/yellow]")
+            # console.print(f"[yellow]Sample rate: {self.target_sr} Hz[/yellow]")
+            # console.print(f"[yellow]Duration: {waveform.shape[1] / self.target_sr:.2f} seconds[/yellow]")
             
             # Process audio
             inputs = self.mert_processor(
@@ -179,8 +179,8 @@ class MERTEmbedder:
             # Mean pool over time dimension and layers
             embedding = hidden_states.mean(dim=[0, 1, 2])  # [1024]
             
-            console.print(f"[green]Embedding shape: {embedding.shape}[/green]")
-            console.print(f"[green]Embedding values range: {embedding.min().item():.4f} to {embedding.max().item():.4f}[/green]")
+            #console.print(f"[green]Embedding shape: {embedding.shape}[/green]")
+            #console.print(f"[green]Embedding values range: {embedding.min().item():.4f} to {embedding.max().item():.4f}[/green]")
             
             return embedding.cpu()
             
@@ -461,7 +461,73 @@ class MongoChatbot:
                 title="Error", border_style="red"
             ))
 
-    def _handle_search_command(self, limit: int = 10):
+    async def _get_search_parameters_from_llm(self, search_comment: str) -> Dict[str, Any]:
+        """
+        Use ChatGPT to deduce additional search parameters from user comment.
+        
+        Args:
+            search_comment (str): User's search comment (e.g., "in Germany", "Latin songs", etc.)
+            
+        Returns:
+            Dict[str, Any]: Search parameters including filters and limit
+        """
+        prompt = f"""
+You are an expert at converting natural language search requests into MongoDB query parameters.
+Given a user's search comment, determine what additional filters should be applied to a music vector search.
+
+Available fields in the database:
+- genres: Array of strings (e.g., ["Latin", "Pop", "RKT"])
+- charts: Object with country codes as keys (e.g., "Germany", "Brazil", "Argentina")
+- language_code: String (e.g., "spa", "eng", "por")
+- language_probability: Number (0-1)
+- audio_metadata.duration: Number (in seconds)
+- TREND_STATUS: String (e.g., "PROCESSED", "UNPROCESSED")
+
+User comment: "{search_comment}"
+
+Return a JSON object with the following structure:
+{{
+    "filters": {{}},  // MongoDB filters to apply
+    "limit": 10,     // Number of results to return
+    "description": "Brief description of what this search is looking for"
+}}
+
+Examples:
+- "in Germany" → {{"filters": {{"charts.Germany": {{"$exists": true}}}}, "limit": 10, "description": "Songs that charted in Germany"}}
+- "Latin songs" → {{"filters": {{"genres": "Latin"}}, "limit": 10, "description": "Latin genre songs"}}
+- "Spanish lyrics" → {{"filters": {{"language_code": "spa"}}, "limit": 10, "description": "Songs with Spanish lyrics"}}
+- "popular in Brazil" → {{"filters": {{"charts.Brazil": {{"$exists": true}}}}, "limit": 15, "description": "Songs popular in Brazil"}}
+- "long songs" → {{"filters": {{"audio_metadata.duration": {{"$gt": 180}}}}, "limit": 10, "description": "Songs longer than 3 minutes"}}
+
+Provide only the JSON output. Do not include any other text or explanation.
+"""
+        
+        import openai
+        
+        # Initialize OpenAI client
+        client = openai.OpenAI(api_key=self.query_generator.api_key)
+        
+        try:
+            # Make API call to OpenAI
+            response = client.chat.completions.create(
+                model="gpt-4.1-nano",
+                messages=[
+                    {"role": "system", "content": "You are an expert at converting natural language search requests into MongoDB query parameters. Provide only JSON output."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=300,
+                temperature=0.1
+            )
+            
+            # Extract the response text
+            text = response.choices[0].message.content.strip()
+            return json.loads(text)
+            
+        except Exception as e:
+            console.print(f"[red]Error parsing search parameters: {e}[/red]")
+            return {"filters": {}, "limit": 10, "description": "Simple music search"}
+
+    async def _handle_search_command(self, search_comment: str = "", limit: int = 10):
         """Handle the /search command to perform vector search on music embeddings."""
         try:
             if not hasattr(self, 'current_embedding') or self.current_embedding is None:
@@ -472,17 +538,42 @@ class MongoChatbot:
                 ))
                 return
             
-            console.print(Panel(
-                f"[bold blue]🔍 Performing Music Vector Search[/bold blue]\n\n"
-                f"Searching for songs similar to your loaded audio...\n"
-                f"Limit: {limit} results",
-                title="Vector Search", border_style="blue"
-            ))
-            
             # Convert embedding to list for MongoDB
             query_vector = self.current_embedding.numpy().tolist()
             
-            # Perform vector search pipeline
+            # Determine search parameters based on comment
+            if search_comment.strip():
+                console.print(Panel(
+                    f"[bold blue]🔍 Analyzing Search Request[/bold blue]\n\n"
+                    f"Comment: '{search_comment}'\n"
+                    f"Determining additional search parameters...",
+                    title="Processing", border_style="blue"
+                ))
+                
+                # Get search parameters from LLM
+                search_params = await self._get_search_parameters_from_llm(search_comment)
+                filters = search_params.get("filters", {})
+                limit = search_params.get("limit", 10)
+                description = search_params.get("description", "Custom search")
+                
+                console.print(Panel(
+                    f"[bold green]✅ Search Parameters Determined[/bold green]\n\n"
+                    f"Description: {description}\n"
+                    f"Filters: {json.dumps(filters, indent=2)}\n"
+                    f"Limit: {limit} results",
+                    title="Parameters", border_style="green"
+                ))
+            else:
+                filters = {}
+                description = "Simple music similarity search"
+                console.print(Panel(
+                    f"[bold blue]🔍 Performing Simple Music Vector Search[/bold blue]\n\n"
+                    f"Searching for songs similar to your loaded audio...\n"
+                    f"Limit: {limit} results",
+                    title="Vector Search", border_style="blue"
+                ))
+            
+            # Build vector search pipeline with optional filters
             pipeline = [
                 {
                     "$vectorSearch": {
@@ -490,7 +581,8 @@ class MongoChatbot:
                         "path": "music_embedding",
                         "queryVector": query_vector,
                         "numCandidates": 100,
-                        "limit": limit
+                        "limit": limit,
+                        "filter": filters if filters else None
                     }
                 },
                 {
@@ -508,7 +600,9 @@ class MongoChatbot:
                         "genres": 1,
                         "musicScore": 1,
                         "first_seen": 1,
-                        "charts": 1
+                        "charts": 1,
+                        "language_code": 1,
+                        "audio_metadata": 1
                     }
                 },
                 {
@@ -520,14 +614,15 @@ class MongoChatbot:
             
             if not results:
                 console.print(Panel(
-                    "[yellow]No similar songs found in the database.[/yellow]",
+                    "[yellow]No similar songs found matching your criteria.[/yellow]",
                     title="No Results", border_style="yellow"
                 ))
                 return
             
             # Display results
             console.print(Panel(
-                f"[bold green]🎵 Vector Search Results (Top {len(results)})[/bold green]",
+                f"[bold green]🎵 Vector Search Results - {description}[/bold green]\n"
+                f"Found {len(results)} results",
                 title="Search Results", border_style="green"
             ))
             
@@ -537,6 +632,7 @@ class MongoChatbot:
                 genres = ', '.join(result.get("genres", []))
                 music_score = result.get("musicScore", 0)
                 lyrics = result.get("lyrics", "N/A")[:100] + "..." if result.get("lyrics") else "N/A"
+                language = result.get("language_code", "N/A")
                 
                 charts_info = ""
                 charts = result.get("charts", {})
@@ -558,6 +654,7 @@ class MongoChatbot:
                     f"[bold]Song Name:[/bold] {song_name}\n"
                     f"[bold]Artist:[/bold] {artist_name}\n"
                     f"[bold]Genres:[/bold] {genres}\n"
+                    f"[bold]Language:[/bold] {language}\n"
                     f"[bold]Similarity Score:[/bold] {music_score:.4f}\n"
                     f"[bold]First Seen:[/bold] {result.get('first_seen', 'N/A')}\n"
                     f"[bold]Lyrics Preview:[/bold] {lyrics}\n"
@@ -589,7 +686,8 @@ class MongoChatbot:
             "• Find songs longer than 3 minutes with high language probability.\n\n"
             "[bold green]Special Commands:[/bold green]\n"
             "• /load local/path/to/file - Preprocess an audio file with MERT\n"
-            "• /search - Find similar songs using vector search (requires loaded audio)\n\n"
+            "• /search - Find similar songs using vector search (requires loaded audio)\n"
+            "• /search comment - Find similar songs with additional filters (e.g., 'in Germany', 'Latin songs')\n\n"
             "[yellow]Type 'quit' or 'exit' to end the session.[/yellow]",
             title="Welcome", border_style="blue"
         ))
@@ -618,8 +716,14 @@ class MongoChatbot:
                     continue
 
                 # Check for /search command
-                if user_input == '/search':
-                    self._handle_search_command()
+                if user_input.startswith('/search'):
+                    if user_input == '/search':
+                        # Simple search without comment
+                        await self._handle_search_command()
+                    else:
+                        # Search with comment
+                        search_comment = user_input[8:].strip()  # Remove '/search ' prefix
+                        await self._handle_search_command(search_comment)
                     continue
 
                 # Use a typing indicator while the LLM and DB are working
