@@ -340,6 +340,7 @@ class MongoChatbot:
             
             # Initialize MERT embedder for audio processing
             self.mert_embedder = None  # Will be initialized on first use
+            self.current_embedding = None  # Store the current audio embedding
         except pymongo.errors.ConnectionFailure as e:
             console.print(Panel(
                 f"[red]Error connecting to MongoDB: {e}[/red]",
@@ -430,32 +431,149 @@ class MongoChatbot:
         try:
             # Initialize MERT embedder if not already done
             if self.mert_embedder is None:
-                console.print("[blue]Initializing MERT model for audio processing...[/blue]")
+                #console.print("[blue]Initializing MERT model for audio processing...[/blue]")
                 self.mert_embedder = MERTEmbedder()
             
             # Process the audio file
-            console.print(Panel(
-                f"[bold blue]🎵 Audio File Preprocessing[/bold blue]\n\n"
-                f"Processing: {file_path}\n\n"
-                "This will extract a 15-second snippet from the middle of the file,\n"
-                "resample to 24kHz, and generate a MERT embedding.",
-                title="Audio Processing", border_style="blue"
-            ))
+            #console.print(Panel(
+                # f"[bold blue]🎵 Audio File Preprocessing[/bold blue]\n\n"
+                # f"Processing: {file_path}\n\n"
+                # "This will extract a 15-second snippet from the middle of the file,\n"
+                # "resample to 24kHz, and generate a MERT embedding.",
+                # title="Audio Processing", border_style="blue"
+            #))
             
-            # Process the file
-            embedding = self.mert_embedder.process_local_file(file_path)
+            # Process the file and store the embedding
+            self.current_embedding = self.mert_embedder.process_local_file(file_path)
             
             console.print(Panel(
                 f"[bold green]✅ Audio Processing Complete![/bold green]\n\n"
-                f"File: {file_path}\n"
-                f"Embedding shape: {embedding.shape}\n"
-                f"Embedding values range: {embedding.min().item():.4f} to {embedding.max().item():.4f}",
-                title="Success", border_style="green"
+                #f"File: {file_path}\n"
+                #f"Embedding shape: {self.current_embedding.shape}\n"
+                #f"Embedding values range: {self.current_embedding.min().item():.4f} to {self.current_embedding.max().item():.4f}\n\n"
+                #f"[yellow]Type /search to find similar songs in the database![/yellow]",
+                #title="Success", border_style="green"
             ))
             
         except Exception as e:
             console.print(Panel(
                 f"[red]❌ Error processing audio file: {str(e)}[/red]",
+                title="Error", border_style="red"
+            ))
+
+    def _handle_search_command(self, limit: int = 10):
+        """Handle the /search command to perform vector search on music embeddings."""
+        try:
+            if not hasattr(self, 'current_embedding') or self.current_embedding is None:
+                console.print(Panel(
+                    "[red]❌ No audio file loaded! Please use /load first.[/red]\n"
+                    "Example: /load /path/to/your/audio/file.mp3",
+                    title="Error", border_style="red"
+                ))
+                return
+            
+            console.print(Panel(
+                f"[bold blue]🔍 Performing Music Vector Search[/bold blue]\n\n"
+                f"Searching for songs similar to your loaded audio...\n"
+                f"Limit: {limit} results",
+                title="Vector Search", border_style="blue"
+            ))
+            
+            # Convert embedding to list for MongoDB
+            query_vector = self.current_embedding.numpy().tolist()
+            
+            # Perform vector search pipeline
+            pipeline = [
+                {
+                    "$vectorSearch": {
+                        "index": "lyrics_n_music_search",
+                        "path": "music_embedding",
+                        "queryVector": query_vector,
+                        "numCandidates": 100,
+                        "limit": limit
+                    }
+                },
+                {
+                    "$addFields": {
+                        "musicScore": {"$meta": "vectorSearchScore"}
+                    }
+                },
+                {
+                    "$project": {
+                        "_id": 1,
+                        "song_id": 1,
+                        "song_name": 1,
+                        "artist_name": 1,
+                        "lyrics": 1,
+                        "genres": 1,
+                        "musicScore": 1,
+                        "first_seen": 1,
+                        "charts": 1
+                    }
+                },
+                {
+                    "$sort": {"musicScore": -1}
+                }
+            ]
+            
+            results = list(self.collection.aggregate(pipeline))
+            
+            if not results:
+                console.print(Panel(
+                    "[yellow]No similar songs found in the database.[/yellow]",
+                    title="No Results", border_style="yellow"
+                ))
+                return
+            
+            # Display results
+            console.print(Panel(
+                f"[bold green]🎵 Vector Search Results (Top {len(results)})[/bold green]",
+                title="Search Results", border_style="green"
+            ))
+            
+            for i, result in enumerate(results, 1):
+                song_name = result.get("song_name", "N/A")
+                artist_name = result.get("artist_name", "N/A")
+                genres = ', '.join(result.get("genres", []))
+                music_score = result.get("musicScore", 0)
+                lyrics = result.get("lyrics", "N/A")[:100] + "..." if result.get("lyrics") else "N/A"
+                
+                charts_info = ""
+                charts = result.get("charts", {})
+                for country, chart_entries in charts.items():
+                    if chart_entries:
+                        latest_entry = chart_entries[0]
+                        rank_data = latest_entry.get("rank", {})
+                        if isinstance(rank_data, dict) and "$numberInt" in rank_data:
+                            rank = rank_data["$numberInt"]
+                        elif isinstance(rank_data, (int, str)):
+                            rank = str(rank_data)
+                        else:
+                            rank = "N/A"
+                        timestamp = latest_entry.get("timestamp", "N/A")
+                        charts_info += f"  - [bold]{country}:[/bold] Rank {rank} (as of {timestamp})\n"
+                
+                panel_content = (
+                    f"[bold blue]Result {i}[/bold blue]\n\n"
+                    f"[bold]Song Name:[/bold] {song_name}\n"
+                    f"[bold]Artist:[/bold] {artist_name}\n"
+                    f"[bold]Genres:[/bold] {genres}\n"
+                    f"[bold]Similarity Score:[/bold] {music_score:.4f}\n"
+                    f"[bold]First Seen:[/bold] {result.get('first_seen', 'N/A')}\n"
+                    f"[bold]Lyrics Preview:[/bold] {lyrics}\n"
+                )
+                
+                if charts_info:
+                    panel_content += f"\n[bold]Latest Chart Ranks:[/bold]\n{charts_info}"
+                
+                console.print(Panel(
+                    panel_content,
+                    border_style="green"
+                ))
+            
+        except Exception as e:
+            console.print(Panel(
+                f"[red]❌ Error performing vector search: {str(e)}[/red]",
                 title="Error", border_style="red"
             ))
 
@@ -470,7 +588,8 @@ class MongoChatbot:
             "• List all Latin songs with Spanish lyrics.\n"
             "• Find songs longer than 3 minutes with high language probability.\n\n"
             "[bold green]Special Commands:[/bold green]\n"
-            "• /load local/path/to/file - Preprocess an audio file with MERT\n\n"
+            "• /load local/path/to/file - Preprocess an audio file with MERT\n"
+            "• /search - Find similar songs using vector search (requires loaded audio)\n\n"
             "[yellow]Type 'quit' or 'exit' to end the session.[/yellow]",
             title="Welcome", border_style="blue"
         ))
@@ -496,6 +615,11 @@ class MongoChatbot:
                             "Example: /load /path/to/your/audio/file.mp3",
                             title="Usage Error", border_style="red"
                         ))
+                    continue
+
+                # Check for /search command
+                if user_input == '/search':
+                    self._handle_search_command()
                     continue
 
                 # Use a typing indicator while the LLM and DB are working
