@@ -652,7 +652,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 # ))
             
             # Build vector search pipeline with optional filters
-            if query_vector:
+            if query_vector and filters!={}:
                 pipeline = [
                     {
                         "$vectorSearch": {
