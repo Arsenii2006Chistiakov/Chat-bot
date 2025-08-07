@@ -475,6 +475,66 @@ class MongoChatbot:
                 title="Error", border_style="red"
             ))
 
+    async def _categorize_input(self, user_input: str) -> str:
+        """
+        Categorize user input into one of four categories using GPT-3.5.
+        
+        Args:
+            user_input (str): The user's input message
+            
+        Returns:
+            str: Category - "help", "talk", "search", or "match"
+        """
+        prompt = f"""
+You are an input categorizer for a music database chatbot. Categorize the user's input into exactly one of these four categories:
+
+1. "help" - User is asking for help, instructions, or wants to know what the system can do
+   Examples: "help", "what can you do", "how does this work", "show me the commands"
+
+2. "talk" - User is making casual conversation, greetings, or general chat
+   Examples: "hello", "how are you", "thanks", "goodbye", "nice to meet you"
+
+3. "search" - User wants to search the database with natural language queries
+   Examples: "find songs by artist X", "show me Latin songs", "songs from Brazil", "popular songs"
+
+4. "match" - User wants to match/find similar songs (usually involves audio or specific song matching)
+   Examples: "find similar songs", "match this song", "what songs are like this", "/search", "/load"
+
+User input: "{user_input}"
+
+Respond with ONLY the category name: help, talk, search, or match
+"""
+        
+        import openai
+        
+        # Initialize OpenAI client
+        client = openai.OpenAI(api_key=self.query_generator.api_key)
+        
+        try:
+            # Make API call to OpenAI with cheaper model
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a simple categorizer. Respond with only one word: help, talk, search, or match."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=10,
+                temperature=0.1
+            )
+            
+            # Extract the response text and clean it
+            category = response.choices[0].message.content.strip().lower()
+            
+            # Ensure it's one of the valid categories
+            if category not in ["help", "talk", "search", "match"]:
+                category = "talk"  # Default fallback
+                
+            return category
+            
+        except Exception as e:
+            console.print(f"[red]Error categorizing input: {e}[/red]")
+            return "talk"  # Default fallback
+
     async def _get_search_parameters_from_llm(self, search_comment: str) -> Dict[str, Any]:
         """
         Use ChatGPT to deduce additional search parameters from user comment.
@@ -833,47 +893,98 @@ Provide only the JSON output. Do not include any other text or explanation.
                     await self._handle_search_command(file_path, prompt)
                     continue
 
-                # Use a typing indicator while the LLM and DB are working
-                with console.status("[bold green]Thinking...[/bold green]", spinner="dots"):
-                    # 1. Get the structured query from the LLM
-                    query_json_str = await self.query_generator.get_query_from_llm(user_input, self.collection_schema)
-                    
-                    try:
-                        query_dict = json.loads(query_json_str)
-                    except json.JSONDecodeError:
-                        console.print(Panel(
-                            f"[red]Error parsing LLM response. Got: {query_json_str}[/red]",
-                            title="LLM Error", border_style="red"
-                        ))
-                        continue
+                # Orchestrator: Categorize the input
+                with console.status("[bold blue]Analyzing input...[/bold blue]", spinner="dots"):
+                    category = await self._categorize_input(user_input)
+                
+                # Print the category to command line
+                console.print(f"[bold magenta]🎯 Input Category: {category.upper()}[/bold magenta]")
+                
+                # Handle based on category
+                if category == "help":
+                    console.print(Panel(
+                        "[bold blue]🤖 MongoDB Song Database Chatbot CLI[/bold blue]\n\n"
+                        "Ask me questions about the song database!\n\n"
+                        "Example questions:\n"
+                        "• Find all songs that were ranked #1 in Brazil.\n"
+                        "• Show me songs by Ponte Perro that charted in Argentina.\n"
+                        "• List all Latin songs with Spanish lyrics.\n"
+                        "• Find songs longer than 3 minutes with high language probability.\n\n"
+                        "[bold green]Special Commands:[/bold green]\n"
+                        "• /load local/path/to/file - Preprocess an audio file with MERT\n"
+                        "• /search - Find similar songs using vector search (requires loaded audio)\n"
+                        "• /search --file audio.mp3 --prompt 'in Germany' - Search with file and filters\n"
+                        "• /search --file audio.mp3 - Search with new file only\n"
+                        "• /search --prompt 'Latin songs' - Text-only search with filters\n\n"
+                        "[yellow]Type 'quit' or 'exit' to end the session.[/yellow]",
+                        title="Help", border_style="blue"
+                    ))
+                
+                elif category == "talk":
+                    console.print(Panel(
+                        f"[bold green]Hello! 👋[/bold green]\n\n"
+                        f"I'm your music database assistant. I can help you:\n"
+                        f"• Search for songs and artists\n"
+                        f"• Find similar songs using audio\n"
+                        f"• Answer questions about the music database\n\n"
+                        f"Just ask me anything about music!",
+                        title="Chat", border_style="green"
+                    ))
+                
+                elif category == "search":
+                    # Use a typing indicator while the LLM and DB are working
+                    with console.status("[bold green]Searching database...[/bold green]", spinner="dots"):
+                        # 1. Get the structured query from the LLM
+                        query_json_str = await self.query_generator.get_query_from_llm(user_input, self.collection_schema)
+                        
+                        try:
+                            query_dict = json.loads(query_json_str)
+                        except json.JSONDecodeError:
+                            console.print(Panel(
+                                f"[red]Error parsing LLM response. Got: {query_json_str}[/red]",
+                                title="LLM Error", border_style="red"
+                            ))
+                            continue
 
-                    # 2. Execute the query
-                    filter_criteria = query_dict.get('filter', {})
-                    projection = query_dict.get('projection', {})
-                    sort = query_dict.get('sort', None)
-                    limit = query_dict.get('limit', 10) # Default limit
+                        # 2. Execute the query
+                        filter_criteria = query_dict.get('filter', {})
+                        projection = query_dict.get('projection', {})
+                        sort = query_dict.get('sort', None)
+                        limit = query_dict.get('limit', 10) # Default limit
 
-                    # Check for empty filter to prevent full collection scans
-                    if not filter_criteria or filter_criteria == {}:
-                         console.print(Panel(
-                            "[yellow]Your query was too broad. Please be more specific![/yellow]",
-                            title="Query Error", border_style="yellow"
-                        ))
-                         continue
+                        # Check for empty filter to prevent full collection scans
+                        if not filter_criteria or filter_criteria == {}:
+                             console.print(Panel(
+                                "[yellow]Your query was too broad. Please be more specific![/yellow]",
+                                title="Query Error", border_style="yellow"
+                            ))
+                             continue
 
-                    # Execute the find operation
-                    cursor = self.collection.find(filter_criteria, projection)
-                    if sort:
-                        cursor = cursor.sort(sort)
-                    if limit:
-                        cursor = cursor.limit(limit)
+                        # Execute the find operation
+                        cursor = self.collection.find(filter_criteria, projection)
+                        if sort:
+                            cursor = cursor.sort(sort)
+                        if limit:
+                            cursor = cursor.limit(limit)
 
-                    results = list(cursor)
+                        results = list(cursor)
 
-                # 3. Display the formatted results
-                console.print()
-                self._format_results(results)
-                console.print()
+                    # 3. Display the formatted results
+                    console.print()
+                    self._format_results(results)
+                    console.print()
+                
+                elif category == "match":
+                    console.print(Panel(
+                        f"[bold yellow]🎵 Song Matching[/bold yellow]\n\n"
+                        f"It looks like you want to find similar songs!\n\n"
+                        f"Try these commands:\n"
+                        f"• /load /path/to/audio/file.mp3 - Load an audio file\n"
+                        f"• /search --file /path/to/audio/file.mp3 - Search with a new file\n"
+                        f"• /search --prompt 'similar to this style' - Text-based matching\n\n"
+                        f"Or ask me to find songs similar to a specific artist or genre!",
+                        title="Song Matching", border_style="yellow"
+                    ))
             
             except Exception as e:
                 console.print(f"[red]An unexpected error occurred: {e}[/red]")
