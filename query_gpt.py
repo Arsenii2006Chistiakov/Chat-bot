@@ -44,6 +44,8 @@ from pathlib import Path
 from transformers import Wav2Vec2FeatureExtractor, AutoModel
 from contextlib import contextmanager
 from elevenlabs.client import ElevenLabs
+from sentence_embeddings import MultilingualSentenceEmbeddings
+from split_lyrics import get_sentences
 
 # Suppress specific warnings
 warnings.filterwarnings("ignore", message="feature_extractor_cqt requires the libray 'nnAudio'")
@@ -279,6 +281,155 @@ class MERTEmbedder:
             console.print(f"[red]Error processing {audio_path}: {str(e)}[/red]")
             raise
 
+    def _process_lyrics_text(self, lyrics_text: str, language_code: str = "eng") -> Dict[str, Any] | None:
+        """
+        Split lyrics into sentences and compute sentence embeddings + mean pooled embedding.
+        Returns an embeddings doc similar to the external app implementation.
+        """
+        if not lyrics_text or str(lyrics_text).strip() == "":
+            return None
+        if self.text_embeddings_model is None:
+            console.print(Panel(
+                "[red]Text embeddings model not available.[/red]",
+                title="Embedding Error", border_style="red"
+            ))
+            return None
+        try:
+            sentences = get_sentences(lyrics_text, language_code or "eng")
+            if not sentences:
+                return None
+            embeddings = self.text_embeddings_model.get_embeddings(sentences)
+            mean_embedding = np.mean(embeddings, axis=0)
+            embeddings_doc: Dict[str, Any] = {
+                "language_code": language_code or "eng",
+                "sentences": sentences,
+                "embeddings": embeddings.tolist(),
+                "mean_embedding": mean_embedding.tolist(),
+                "embedding_dim": int(embeddings.shape[1]),
+                "num_sentences": int(len(sentences)),
+                "processed_at": datetime.now().isoformat(),
+            }
+            return embeddings_doc
+        except Exception as e:
+            console.print(Panel(
+                f"[red]Error embedding lyrics text: {str(e)}[/red]",
+                title="Embedding Error", border_style="red"
+            ))
+            return None
+
+    def _save_text_embedding_to_mongodb(self, song_id: str, embeddings_doc: Dict[str, Any]) -> bool:
+        """
+        Save mean pooled text embedding to the current collection under `text_embedding`.
+        """
+        try:
+            result = self.collection.update_one(
+                {"song_id": song_id},
+                {
+                    "$set": {
+                        "text_embedding": embeddings_doc["mean_embedding"],
+                        "embedding_dim": embeddings_doc["embedding_dim"],
+                        "num_sentences": embeddings_doc["num_sentences"],
+                        "embedding_processed_at": datetime.now().isoformat(),
+                    }
+                }
+            )
+            return result.matched_count > 0
+        except Exception as e:
+            console.print(Panel(
+                f"[red]Error saving text embedding to MongoDB: {str(e)}[/red]",
+                title="MongoDB Error", border_style="red"
+            ))
+            return False
+
+    async def _handle_loadtext_command(self, args_line: str):
+        """
+        Handle the /loadtext command.
+        Usage examples:
+          /loadtext --text "some lyrics here" --lang eng [--song_id XYZ]
+          /loadtext --file /path/to/lyrics.txt --lang spa [--song_id XYZ]
+        If --song_id is provided, will also save the mean embedding to MongoDB under `text_embedding`.
+        Always keeps the current mean text embedding in memory for vector search.
+        """
+        # Default values
+        lyrics_text: str | None = None
+        language_code: str = "eng"
+        song_id: str | None = None
+        file_path: str | None = None
+
+        # Simple arg parsing
+        parts = args_line.strip().split()
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token == "--text" and i + 1 < len(parts):
+                # Collect the rest as text
+                lyrics_text = " ".join(parts[i + 1:])
+                break
+            elif token == "--file" and i + 1 < len(parts):
+                file_path = parts[i + 1]
+                i += 2
+                continue
+            elif token == "--lang" and i + 1 < len(parts):
+                language_code = parts[i + 1]
+                i += 2
+                continue
+            elif token == "--song_id" and i + 1 < len(parts):
+                song_id = parts[i + 1]
+                i += 2
+                continue
+            else:
+                i += 1
+
+        # If not provided via flags, treat the raw remainder as text
+        if lyrics_text is None and file_path is None:
+            raw = args_line.strip()
+            lyrics_text = raw if raw else None
+
+        if file_path and not lyrics_text:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    lyrics_text = f.read()
+            except Exception as e:
+                console.print(Panel(
+                    f"[red]Failed to read file: {e}[/red]",
+                    title="File Error", border_style="red"
+                ))
+                return
+
+        if not lyrics_text:
+            console.print(Panel(
+                "[red]Please provide lyrics via --text or --file[/red]",
+                title="Usage Error", border_style="red"
+            ))
+            return
+
+        embeddings_doc = self._process_lyrics_text(lyrics_text, language_code)
+        if not embeddings_doc:
+            console.print(Panel(
+                "[red]Could not generate embeddings for the provided lyrics.[/red]",
+                title="Embedding Error", border_style="red"
+            ))
+            return
+
+        # Keep in memory for search
+        self.current_text_embedding = np.array(embeddings_doc["mean_embedding"], dtype=np.float32)
+
+        saved_msg = ""
+        if song_id:
+            if self._save_text_embedding_to_mongodb(song_id, embeddings_doc):
+                saved_msg = f"\nSaved to MongoDB for song_id: {song_id}"
+            else:
+                saved_msg = f"\n[Warning] No document updated for song_id: {song_id}"
+
+        console.print(Panel(
+            f"[bold green]✅ Text Loaded & Embedded[/bold green]\n\n"
+            f"Sentences: {embeddings_doc['num_sentences']}\n"
+            f"Embedding dim: {embeddings_doc['embedding_dim']}\n"
+            f"Language: {embeddings_doc['language_code']}\n"
+            f"You can now run /search (uses the loaded text embedding)."
+            f"{saved_msg}",
+            title="Success", border_style="green"
+        ))
 class MongoDBQueryGenerator:
     """
     A class to generate MongoDB query JSON from natural language using an LLM.
@@ -434,6 +585,12 @@ class MongoChatbot:
             self.mert_embedder = None  # Will be initialized on first use
             self.current_embedding = None  # Store the current audio embedding
             self.current_transcription_text = None  # Store last transcription text
+            # Initialize text embeddings model for lyrics
+            try:
+                self.text_embeddings_model = MultilingualSentenceEmbeddings()
+            except Exception:
+                self.text_embeddings_model = None
+            self.current_text_embedding = None  # Mean-pooled lyrics embedding kept in memory
         except pymongo.errors.ConnectionFailure as e:
             console.print(Panel(
                 f"[red]Error connecting to MongoDB: {e}[/red]",
@@ -547,6 +704,18 @@ class MongoChatbot:
             transcription_result = await transcription_task
             self.current_transcription_text = transcription_result.get("text", "")
 
+            # If we have transcription text, also compute lyrics text embedding (mean-pooled)
+            text_embed_info = ""
+            try:
+                if self.current_transcription_text and self.text_embeddings_model is not None:
+                    text_embeddings_doc = self._process_lyrics_text(self.current_transcription_text, "eng")
+                    if text_embeddings_doc:
+                        self.current_text_embedding = np.array(text_embeddings_doc["mean_embedding"], dtype=np.float32)
+                        text_embed_info = f"\nText sentences: {text_embeddings_doc['num_sentences']} (mean text embedding cached)"
+            except Exception:
+                # Non-fatal: proceed without text embedding
+                pass
+
             # Cleanup temp wav
             try:
                 if os.path.exists(wav_path):
@@ -558,7 +727,7 @@ class MongoChatbot:
                 f"[bold green]✅ Loaded & Stored[/bold green]\n\n"
                 f"Embedding: {list(embedding.shape)}\n"
                 f"Transcript chars: {len(self.current_transcription_text or '')}\n\n"
-                f"You can now run /search (uses the loaded embedding).",
+                f"You can now run /search (uses the loaded embedding)." + text_embed_info,
                 title="Success", border_style="green"
             ))
         except Exception as e:
@@ -731,6 +900,7 @@ Provide only the JSON output. Do not include any other text or explanation.
         """Handle the /search command with optional --file and --prompt parameters."""
         try:
             query_vector = None
+            vector_path = "music_embedding"
             search_comment = ""
             
             # Process file if provided
@@ -782,8 +952,16 @@ Provide only the JSON output. Do not include any other text or explanation.
                 # Use stored embedding if available, otherwise set to None for text-only search
                 if hasattr(self, 'current_embedding') and self.current_embedding is not None:
                     query_vector = self.current_embedding.numpy().tolist()
+                    vector_path = "music_embedding"
                     console.print(Panel(
                         "[blue]Using previously loaded audio embedding[/blue]",
+                        title="Info", border_style="blue"
+                    ))
+                elif hasattr(self, 'current_text_embedding') and self.current_text_embedding is not None:
+                    query_vector = self.current_text_embedding.tolist()
+                    vector_path = "text_embedding"
+                    console.print(Panel(
+                        "[blue]Using previously loaded text embedding[/blue]",
                         title="Info", border_style="blue"
                     ))
                 else:
@@ -830,7 +1008,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 # Build vector search stage - only include filter if it's not empty
                 vector_search_stage = {
                     "index": "lyrics_n_music_search",
-                    "path": "music_embedding",
+                    "path": vector_path,
                     "queryVector": query_vector,
                     "numCandidates": 100,
                     "limit": limit
@@ -992,6 +1170,8 @@ Provide only the JSON output. Do not include any other text or explanation.
             "• Find songs longer than 3 minutes with high language probability.\n\n"
             "[bold green]Special Commands:[/bold green]\n"
             "• /load local/path/to/file - Preprocess an audio file with MERT\n"
+            "• /loadtext --text 'lyrics here' [--lang eng] [--song_id XYZ] - Embed lyrics text and optionally save to DB\n"
+            "• /loadtext --file /path/to/lyrics.txt [--lang spa] [--song_id XYZ] - Embed lyrics from a file\n"
             "• /search - Find similar songs using vector search (requires loaded audio)\n"
             "• /search --file audio.mp3 --prompt 'in Germany' - Search with file and filters\n"
             "• /search --file audio.mp3 - Search with new file only\n"
@@ -1028,6 +1208,12 @@ Provide only the JSON output. Do not include any other text or explanation.
                     # Parse the search command
                     file_path, prompt = self._parse_search_command(user_input)
                     await self._handle_search_command(file_path, prompt)
+                    continue
+
+                # Check for /loadtext command
+                if user_input.startswith('/loadtext'):
+                    args_line = user_input[len('/loadtext'):]
+                    await self._handle_loadtext_command(args_line)
                     continue
 
                 # Orchestrator: Categorize the input
