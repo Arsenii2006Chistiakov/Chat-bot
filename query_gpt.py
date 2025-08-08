@@ -1521,13 +1521,13 @@ Provide only the JSON output. Do not include any other text or explanation.
                     # Simple equality filters are supported
                     basic_filters[key] = value
         
-        # Build vector search stage with only basic filters
+        # Build vector search stage - always query top 100 results first
         vector_search_stage = {
             "index": "lyrics_n_music_search",
             "path": vector_path,
             "queryVector": query_vector,
             "numCandidates": 100,
-            "limit": limit
+            "limit": 100  # Always get top 100 for similarity search
         }
         
         # Only add basic filters to vector search
@@ -1559,6 +1559,24 @@ Provide only the JSON output. Do not include any other text or explanation.
         
         console.print(f"[blue]Final pipeline: {pipeline}[/blue]")
         results = list(self.collection.aggregate(pipeline))
+        
+        # Check if we got any results after filtering
+        if not results:
+            if complex_filters:
+                console.print(Panel(
+                    f"[yellow]No results found for your query in the top 100 most similar matches.[/yellow]\n\n"
+                    f"The search found the top 100 most similar songs, but none matched your additional filters:\n"
+                    f"{json.dumps(complex_filters, indent=2)}\n\n"
+                    f"Try relaxing your search criteria or searching without the additional filters.",
+                    title="No Results in Top 100", border_style="yellow"
+                ))
+            else:
+                console.print(Panel(
+                    "[yellow]No similar songs found in the top 100 matches.[/yellow]",
+                    title="No Results", border_style="yellow"
+                ))
+            return
+        
         self._display_search_results(results, description, "vector")
 
     async def _execute_filter_search(self, filters: Dict, limit: int, description: str):
