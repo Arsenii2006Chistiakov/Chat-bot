@@ -40,14 +40,32 @@ class LocalSentenceEmbeddings:
         """
         Initialize the embeddings model. Prefer local cache if available; otherwise load by model id.
         """
+        print(f"\n{'='*60}")
+        print("MINILM MODEL INITIALIZATION")
+        print(f"{'='*60}")
+        
         start_time = time.time()
+        
         if local_model_path is not None:
-            print(f"\nLoading SentenceTransformer model from local cache: {local_model_path}")
-            self.model = SentenceTransformer(local_model_path)
+            print(f"Loading SentenceTransformer model from local cache: {local_model_path}")
+            try:
+                self.model = SentenceTransformer(local_model_path)
+                print("✅ Successfully loaded from local cache")
+            except Exception as e:
+                print(f"❌ Failed to load from local cache: {e}")
+                print("Falling back to model id...")
+                model_id = "paraphrase-multilingual-MiniLM-L12-v2"
+                print(f"Loading SentenceTransformer model by id: {model_id}")
+                self.model = SentenceTransformer(model_id)
         else:
             model_id = "paraphrase-multilingual-MiniLM-L12-v2"
-            print(f"\nLoading SentenceTransformer model by id: {model_id} (may download if not cached)")
-            self.model = SentenceTransformer(model_id)
+            print(f"Loading SentenceTransformer model by id: {model_id} (may download if not cached)")
+            try:
+                self.model = SentenceTransformer(model_id)
+                print("✅ Successfully loaded by model id")
+            except Exception as e:
+                print(f"❌ Failed to load by model id: {e}")
+                raise
 
         self.model.to('cpu')  # Explicitly move to CPU unless user config changes it
 
@@ -56,6 +74,9 @@ class LocalSentenceEmbeddings:
         print(f"Model loaded successfully in {load_time:.2f} seconds")
         print(f"Model device: {self.model.device}")
         print(f"Embedding dimension: {self.model.get_sentence_embedding_dimension()}")
+        print(f"{'='*60}")
+        print("MINILM INITIALIZATION COMPLETE")
+        print(f"{'='*60}\n")
 
     def get_embedding(self, text: str) -> np.ndarray:
         """

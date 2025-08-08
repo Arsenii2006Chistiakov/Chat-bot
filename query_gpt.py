@@ -286,20 +286,35 @@ class MERTEmbedder:
         Split lyrics into sentences and compute sentence embeddings + mean pooled embedding.
         Returns an embeddings doc similar to the external app implementation.
         """
+        console.print(f"[blue]Processing lyrics text (length: {len(lyrics_text)})[/blue]")
+        
         if not lyrics_text or str(lyrics_text).strip() == "":
+            console.print("[yellow]No lyrics text provided[/yellow]")
             return None
+            
         if self.text_embeddings_model is None:
             console.print(Panel(
                 "[red]Text embeddings model not available.[/red]",
                 title="Embedding Error", border_style="red"
             ))
             return None
+            
         try:
+            console.print(f"[blue]Splitting sentences with language_code: {language_code}[/blue]")
             sentences = get_sentences(lyrics_text, language_code)
+            console.print(f"[blue]Got {len(sentences)} sentences[/blue]")
+            
             if not sentences:
+                console.print("[yellow]No sentences extracted[/yellow]")
                 return None
+                
+            console.print("[blue]Generating embeddings for sentences...[/blue]")
             embeddings = self.text_embeddings_model.get_embeddings(sentences)
+            console.print(f"[blue]Generated embeddings shape: {embeddings.shape}[/blue]")
+            
             mean_embedding = np.mean(embeddings, axis=0)
+            console.print(f"[blue]Mean embedding shape: {mean_embedding.shape}[/blue]")
+            
             embeddings_doc: Dict[str, Any] = {
                 "language_code": language_code,
                 "sentences": sentences,
@@ -309,7 +324,9 @@ class MERTEmbedder:
                 "num_sentences": int(len(sentences)),
                 "processed_at": datetime.now().isoformat(),
             }
+            console.print("[green]✅ Text embeddings processing completed successfully[/green]")
             return embeddings_doc
+            
         except Exception as e:
             console.print(Panel(
                 f"[red]Error embedding lyrics text: {str(e)}[/red]",
@@ -587,8 +604,11 @@ class MongoChatbot:
             self.current_transcription_text = None  # Store last transcription text
             # Initialize text embeddings model for lyrics
             try:
+                console.print("[blue]Initializing MultilingualSentenceEmbeddings model...[/blue]")
                 self.text_embeddings_model = MultilingualSentenceEmbeddings()
-            except Exception:
+                console.print("[green]✅ Text embeddings model initialized successfully[/green]")
+            except Exception as e:
+                console.print(f"[red]❌ Error initializing text embeddings model: {e}[/red]")
                 self.text_embeddings_model = None
             self.current_text_embedding = None  # Mean-pooled lyrics embedding kept in memory
         except pymongo.errors.ConnectionFailure as e:
@@ -638,20 +658,35 @@ class MongoChatbot:
         Split lyrics into sentences and compute sentence embeddings + mean pooled embedding.
         Returns an embeddings doc similar to the external app implementation.
         """
+        console.print(f"[blue]Processing lyrics text (length: {len(lyrics_text)})[/blue]")
+        
         if not lyrics_text or str(lyrics_text).strip() == "":
+            console.print("[yellow]No lyrics text provided[/yellow]")
             return None
+            
         if self.text_embeddings_model is None:
             console.print(Panel(
                 "[red]Text embeddings model not available.[/red]",
                 title="Embedding Error", border_style="red"
             ))
             return None
+            
         try:
+            console.print(f"[blue]Splitting sentences with language_code: {language_code}[/blue]")
             sentences = get_sentences(lyrics_text, language_code)
+            console.print(f"[blue]Got {len(sentences)} sentences[/blue]")
+            
             if not sentences:
+                console.print("[yellow]No sentences extracted[/yellow]")
                 return None
+                
+            console.print("[blue]Generating embeddings for sentences...[/blue]")
             embeddings = self.text_embeddings_model.get_embeddings(sentences)
+            console.print(f"[blue]Generated embeddings shape: {embeddings.shape}[/blue]")
+            
             mean_embedding = np.mean(embeddings, axis=0)
+            console.print(f"[blue]Mean embedding shape: {mean_embedding.shape}[/blue]")
+            
             embeddings_doc: Dict[str, Any] = {
                 "language_code": language_code,
                 "sentences": sentences,
@@ -661,7 +696,9 @@ class MongoChatbot:
                 "num_sentences": int(len(sentences)),
                 "processed_at": datetime.now().isoformat(),
             }
+            console.print("[green]✅ Text embeddings processing completed successfully[/green]")
             return embeddings_doc
+            
         except Exception as e:
             console.print(Panel(
                 f"[red]Error embedding lyrics text: {str(e)}[/red]",
