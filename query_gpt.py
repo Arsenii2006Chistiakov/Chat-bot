@@ -1444,7 +1444,7 @@ Provide only the JSON output. Do not include any other text or explanation.
             filters = search_params.get('filters', {})
             limit = search_params.get('limit', 10)
             description = search_params.get('description', 'Custom search')
-            
+
             console.print(f"[blue]Search type: {search_type}[/blue]")
             console.print(f"[blue]MongoDB search filters: {filters}[/blue]")
             
@@ -1522,7 +1522,7 @@ Provide only the JSON output. Do not include any other text or explanation.
             }},
             {"$sort": {"score": -1}}
         ]
-        
+        print(pipeline)
         results = list(self.collection.aggregate(pipeline))
         self._display_search_results(results, description, "vector")
 
