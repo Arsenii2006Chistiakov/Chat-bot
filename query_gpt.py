@@ -24,7 +24,7 @@ import sys
 import warnings
 import asyncio
 import requests
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 from dotenv import load_dotenv
 import pymongo
@@ -281,7 +281,7 @@ class MERTEmbedder:
             console.print(f"[red]Error processing {audio_path}: {str(e)}[/red]")
             raise
 
-    def _process_lyrics_text(self, lyrics_text: str, language_code: str = "eng") -> Dict[str, Any] | None:
+    def _process_lyrics_text(self, lyrics_text: str, language_code: Optional[str] = None) -> Dict[str, Any] | None:
         """
         Split lyrics into sentences and compute sentence embeddings + mean pooled embedding.
         Returns an embeddings doc similar to the external app implementation.
@@ -295,13 +295,13 @@ class MERTEmbedder:
             ))
             return None
         try:
-            sentences = get_sentences(lyrics_text, language_code or "eng")
+            sentences = get_sentences(lyrics_text, language_code)
             if not sentences:
                 return None
             embeddings = self.text_embeddings_model.get_embeddings(sentences)
             mean_embedding = np.mean(embeddings, axis=0)
             embeddings_doc: Dict[str, Any] = {
-                "language_code": language_code or "eng",
+                "language_code": language_code,
                 "sentences": sentences,
                 "embeddings": embeddings.tolist(),
                 "mean_embedding": mean_embedding.tolist(),
@@ -352,7 +352,7 @@ class MERTEmbedder:
         """
         # Default values
         lyrics_text: str | None = None
-        language_code: str = "eng"
+        language_code: Optional[str] = None
         song_id: str | None = None
         file_path: str | None = None
 
@@ -707,14 +707,22 @@ class MongoChatbot:
             # If we have transcription text, also compute lyrics text embedding (mean-pooled)
             text_embed_info = ""
             try:
-                if self.current_transcription_text and self.text_embeddings_model is not None:
-                    text_embeddings_doc = self._process_lyrics_text(self.current_transcription_text, "eng")
+                transcript_text = (self.current_transcription_text or "").strip()
+                if transcript_text:
+                    # Leave language_code None for automatic handling in sentence splitting
+                    text_embeddings_doc = self._process_lyrics_text(transcript_text, None)
                     if text_embeddings_doc:
                         self.current_text_embedding = np.array(text_embeddings_doc["mean_embedding"], dtype=np.float32)
-                        text_embed_info = f"\nText sentences: {text_embeddings_doc['num_sentences']} (mean text embedding cached)"
-            except Exception:
-                # Non-fatal: proceed without text embedding
-                pass
+                        text_embed_info = (
+                            f"\nText sentences: {text_embeddings_doc['num_sentences']} "
+                            f"(mean text embedding cached)"
+                        )
+                    else:
+                        text_embed_info = "\n[Note] Transcript available but sentence embedding failed."
+                else:
+                    text_embed_info = "\n[Note] No transcript text returned for text embedding."
+            except Exception as e:
+                text_embed_info = f"\n[Note] Text embedding error: {e}"
 
             # Cleanup temp wav
             try:

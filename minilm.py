@@ -5,20 +5,29 @@ import torch
 import time
 from typing import List, Dict, Any
 
-# Define the local cache directory where your model files are located
-local_model_path = "/home/arsenii/lyrics_embedding_api/my_minilm_cache"
+# Determine local cache directory for the model, with fallbacks
+def _resolve_local_model_path() -> str | None:
+    candidates = []
+    # Highest priority: environment variable
+    env_path = os.getenv("MINILM_LOCAL_PATH")
+    if env_path:
+        candidates.append(os.path.expanduser(env_path))
+    # Common local directories relative to the project
+    candidates.extend([
+        os.path.abspath("my_minilm_cache"),
+        os.path.abspath("models/my_minilm_cache"),
+        os.path.expanduser("~/lyrics_embedding_api/my_minilm_cache"),
+        "/home/arsenii/lyrics_embedding_api/my_minilm_cache",
+    ])
 
-# --- No need for snapshot_download if you already have the cache locally ---
-# We're explicitly telling SentenceTransformer to load from this directory.
-# The previous `snapshot_download` was for ensuring the cache was there.
-# If you are absolutely sure it's complete and correct, you can remove it.
+    for path in candidates:
+        if os.path.exists(path) and os.path.isdir(path) and os.listdir(path):
+            print(f"Local model cache found at: {path}")
+            return path
+    print("Warning: No local MiniLM cache directory found. Will load by model id (may download).")
+    return None
 
-# Check if the local model cache exists
-if os.path.exists(local_model_path) and os.listdir(local_model_path):
-    print(f"Local model cache found at: {local_model_path}")
-else:
-    print(f"Warning: The directory '{local_model_path}' does not exist or is empty.")
-    print("Please ensure your model files are correctly placed in this directory.")
+local_model_path = _resolve_local_model_path()
 
 
 class LocalSentenceEmbeddings:
@@ -29,15 +38,18 @@ class LocalSentenceEmbeddings:
 
     def __init__(self):
         """
-        Initialize the embeddings model locally from the pre-downloaded path.
+        Initialize the embeddings model. Prefer local cache if available; otherwise load by model id.
         """
-        print(f"\nLoading SentenceTransformer model from: {local_model_path}")
-        print("This should be very fast as files are already present locally.")
-
         start_time = time.time()
-        # >>> CRUCIAL: Load directly from the local directory <<<
-        self.model = SentenceTransformer(local_model_path)
-        self.model.to('cpu') # Explicitly move to CPU, if GPU is not available or desired
+        if local_model_path is not None:
+            print(f"\nLoading SentenceTransformer model from local cache: {local_model_path}")
+            self.model = SentenceTransformer(local_model_path)
+        else:
+            model_id = "paraphrase-multilingual-MiniLM-L12-v2"
+            print(f"\nLoading SentenceTransformer model by id: {model_id} (may download if not cached)")
+            self.model = SentenceTransformer(model_id)
+
+        self.model.to('cpu')  # Explicitly move to CPU unless user config changes it
 
         load_time = time.time() - start_time
 
