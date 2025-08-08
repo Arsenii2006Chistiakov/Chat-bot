@@ -933,16 +933,16 @@ class MongoChatbot:
 
     async def _categorize_input(self, user_input: str) -> str:
         """
-        Categorize user input into one of four categories using GPT-3.5.
+        Categorize user input into one of three categories using GPT-3.5.
         
         Args:
             user_input (str): The user's input message
             
         Returns:
-            str: Category - "help", "talk", "search", or "match"
+            str: Category - "help", "talk", or "search"
         """
         prompt = f"""
-You are an input categorizer for a music database chatbot. Categorize the user's input into exactly one of these four categories:
+You are an input categorizer for a music database chatbot. Categorize the user's input into exactly one of these three categories:
 
 1. "help" - User is asking for help, instructions, or wants to know what the system can do
    Examples: "help", "what can you do", "how does this work", "show me the commands"
@@ -950,15 +950,12 @@ You are an input categorizer for a music database chatbot. Categorize the user's
 2. "talk" - User is making casual conversation, greetings, or general chat
    Examples: "hello", "how are you", "thanks", "goodbye", "nice to meet you"
 
-3. "search" - User wants to search the database with natural language queries
-   Examples: "find songs by artist X", "show me Latin songs", "songs from Brazil", "popular songs"
-
-4. "match" - User wants to match/find similar songs (usually involves audio or specific song matching)
-   Examples: "find similar songs", "match this song", "what songs are like this", "/search", "/load"
+3. "search" - User wants to search the database with natural language queries or find similar songs/lyrics
+   Examples: "find songs by artist X", "show me Latin songs", "songs from Brazil", "popular songs", "find similar songs", "match this song", "what songs are like this", "find similar lyrics"
 
 User input: "{user_input}"
 
-Respond with ONLY the category name: help, talk, search, or match
+Respond with ONLY the category name: help, talk, or search
 """
         
         import openai
@@ -971,7 +968,7 @@ Respond with ONLY the category name: help, talk, search, or match
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are a simple categorizer. Respond with only one word: help, talk, search, or match."},
+                    {"role": "system", "content": "You are a simple categorizer. Respond with only one word: help, talk, or search."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=10,
@@ -982,7 +979,7 @@ Respond with ONLY the category name: help, talk, search, or match
             category = response.choices[0].message.content.strip().lower()
             
             # Ensure it's one of the valid categories
-            if category not in ["help", "talk", "search", "match"]:
+            if category not in ["help", "talk", "search"]:
                 category = "talk"  # Default fallback
                 
             return category
@@ -1055,6 +1052,86 @@ Provide only the JSON output. Do not include any other text or explanation.
         except Exception as e:
             console.print(f"[red]Error parsing search parameters: {e}[/red]")
             return {"filters": {}, "limit": 10, "description": "Simple music search"}
+
+    async def _determine_search_embeddings(self, search_query: str) -> Dict[str, Any]:
+        """
+        Use LLM to determine which embeddings should be used for the search.
+        
+        Args:
+            search_query (str): The user's search query
+            
+        Returns:
+            Dict[str, Any]: Search parameters including which embeddings to use
+        """
+        # Check what embeddings are available
+        has_music_embedding = hasattr(self, 'current_embedding') and self.current_embedding is not None
+        has_text_embedding = hasattr(self, 'current_text_embedding') and self.current_text_embedding is not None
+        
+        embedding_status = {
+            "music_embedding": has_music_embedding,
+            "text_embedding": has_text_embedding
+        }
+        
+        prompt = f"""
+You are an expert at determining which embeddings should be used for music database searches.
+Given a user's search query and available embeddings, determine the best search approach.
+
+Available embeddings: {embedding_status}
+User query: "{search_query}"
+
+Return a JSON object with the following structure:
+{{
+    "use_music_embedding": true/false,  // Whether to use music (audio) embedding
+    "use_text_embedding": true/false,   // Whether to use text (lyrics) embedding
+    "search_type": "vector_only" | "filter_only" | "hybrid",  // Type of search to perform
+    "reasoning": "Brief explanation of the decision"
+}}
+
+Guidelines:
+- If query mentions "similar songs", "like this", "match", "audio", "sound" → prefer music embedding
+- If query mentions "lyrics", "text", "words", "meaning" → prefer text embedding  
+- If query mentions both audio and lyrics → use both embeddings
+- If query is purely text-based filtering (artist, genre, country) → use filter_only
+- If no embeddings available → use filter_only
+
+Examples:
+- "find similar songs" → {{"use_music_embedding": true, "use_text_embedding": false, "search_type": "vector_only", "reasoning": "Looking for similar audio"}}
+- "songs with similar lyrics" → {{"use_music_embedding": false, "use_text_embedding": true, "search_type": "vector_only", "reasoning": "Looking for similar text content"}}
+- "Latin songs in Brazil" → {{"use_music_embedding": false, "use_text_embedding": false, "search_type": "filter_only", "reasoning": "Pure text filtering"}}
+
+Provide only the JSON output. Do not include any other text or explanation.
+"""
+        
+        import openai
+        
+        # Initialize OpenAI client
+        client = openai.OpenAI(api_key=self.query_generator.api_key)
+        
+        try:
+            # Make API call to OpenAI
+            response = client.chat.completions.create(
+                model="gpt-4.1-nano",
+                messages=[
+                    {"role": "system", "content": "You are an expert at determining which embeddings should be used for music database searches. Provide only JSON output."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=200,
+                temperature=0.1
+            )
+            
+            # Extract the response text
+            text = response.choices[0].message.content.strip()
+            return json.loads(text)
+            
+        except Exception as e:
+            console.print(f"[red]Error determining search embeddings: {e}[/red]")
+            # Fallback: use available embeddings if any
+            return {
+                "use_music_embedding": has_music_embedding,
+                "use_text_embedding": has_text_embedding,
+                "search_type": "vector_only" if (has_music_embedding or has_text_embedding) else "filter_only",
+                "reasoning": "Fallback decision"
+            }
 
     def _parse_search_command(self, user_input: str) -> tuple:
         """
@@ -1353,6 +1430,185 @@ Provide only the JSON output. Do not include any other text or explanation.
             console.print(f"[red]Transcription failed for {wav_path}.[/red]")
             return {"text": "Transcription failed."}
 
+    async def _execute_unified_search(self, user_input: str, embedding_decision: Dict[str, Any], search_params: Dict[str, Any]):
+        """
+        Execute search based on embedding decision and search parameters.
+        
+        Args:
+            user_input (str): Original user query
+            embedding_decision (Dict[str, Any]): Decision about which embeddings to use
+            search_params (Dict[str, Any]): Search parameters (filters, limit, etc.)
+        """
+        try:
+            search_type = embedding_decision.get('search_type', 'filter_only')
+            filters = search_params.get('filters', {})
+            limit = search_params.get('limit', 10)
+            description = search_params.get('description', 'Custom search')
+            
+            console.print(Panel(
+                f"[bold green]🎵 Executing {search_type.upper()} Search[/bold green]\n"
+                f"Description: {description}\n"
+                f"Limit: {limit} results",
+                title="Search Execution", border_style="green"
+            ))
+            
+            if search_type == "vector_only":
+                # Vector search with embeddings
+                await self._execute_vector_search(embedding_decision, filters, limit, description)
+                
+            elif search_type == "filter_only":
+                # Traditional MongoDB find with filters
+                await self._execute_filter_search(filters, limit, description)
+                
+            elif search_type == "hybrid":
+                # Combine vector and filter search
+                await self._execute_hybrid_search(embedding_decision, filters, limit, description)
+                
+            else:
+                console.print(Panel(
+                    f"[red]Unknown search type: {search_type}[/red]",
+                    title="Search Error", border_style="red"
+                ))
+                
+        except Exception as e:
+            console.print(Panel(
+                f"[red]❌ Error executing search: {str(e)}[/red]",
+                title="Search Error", border_style="red"
+            ))
+
+    async def _execute_vector_search(self, embedding_decision: Dict[str, Any], filters: Dict, limit: int, description: str):
+        """Execute vector search using available embeddings."""
+        query_vector = None
+        vector_path = None
+        
+        # Determine which embedding to use
+        if embedding_decision.get('use_music_embedding') and hasattr(self, 'current_embedding') and self.current_embedding is not None:
+            query_vector = self.current_embedding.numpy().tolist()
+            vector_path = "music_embedding"
+            console.print("[blue]Using music embedding for vector search[/blue]")
+        elif embedding_decision.get('use_text_embedding') and hasattr(self, 'current_text_embedding') and self.current_text_embedding is not None:
+            query_vector = self.current_text_embedding.tolist()
+            vector_path = "text_embedding"
+            console.print("[blue]Using text embedding for vector search[/blue]")
+        else:
+            console.print(Panel(
+                "[yellow]No suitable embeddings available for vector search[/yellow]",
+                title="Vector Search Warning", border_style="yellow"
+            ))
+            return
+        
+        # Build vector search pipeline
+        vector_search_stage = {
+            "index": "lyrics_n_music_search",
+            "path": vector_path,
+            "queryVector": query_vector,
+            "numCandidates": 100,
+            "limit": limit
+        }
+        
+        if filters and filters != {}:
+            vector_search_stage["filter"] = filters
+        
+        pipeline = [
+            {"$vectorSearch": vector_search_stage},
+            {"$addFields": {"score": {"$meta": "vectorSearchScore"}}},
+            {"$project": {
+                "_id": 1, "song_id": 1, "song_name": 1, "artist_name": 1,
+                "lyrics": 1, "genres": 1, "score": 1, "first_seen": 1,
+                "charts": 1, "language_code": 1, "audio_metadata": 1
+            }},
+            {"$sort": {"score": -1}}
+        ]
+        
+        results = list(self.collection.aggregate(pipeline))
+        self._display_search_results(results, description, "vector")
+
+    async def _execute_filter_search(self, filters: Dict, limit: int, description: str):
+        """Execute traditional MongoDB find with filters."""
+        pipeline = [
+            {"$match": filters if filters and filters != {} else {}},
+            {"$project": {
+                "_id": 1, "song_id": 1, "song_name": 1, "artist_name": 1,
+                "lyrics": 1, "genres": 1, "first_seen": 1, "charts": 1,
+                "language_code": 1, "audio_metadata": 1
+            }},
+            {"$limit": limit}
+        ]
+        
+        results = list(self.collection.aggregate(pipeline))
+        self._display_search_results(results, description, "filter")
+
+    async def _execute_hybrid_search(self, embedding_decision: Dict[str, Any], filters: Dict, limit: int, description: str):
+        """Execute hybrid search combining vector and filter approaches."""
+        # For now, prioritize vector search if embeddings are available
+        if (embedding_decision.get('use_music_embedding') and hasattr(self, 'current_embedding') and self.current_embedding is not None) or \
+           (embedding_decision.get('use_text_embedding') and hasattr(self, 'current_text_embedding') and self.current_text_embedding is not None):
+            await self._execute_vector_search(embedding_decision, filters, limit, description)
+        else:
+            await self._execute_filter_search(filters, limit, description)
+
+    def _display_search_results(self, results: List[Dict], description: str, search_type: str):
+        """Display search results with appropriate formatting."""
+        if not results:
+            console.print(Panel(
+                "[yellow]No results found matching your criteria.[/yellow]",
+                title="No Results", border_style="yellow"
+            ))
+            return
+        
+        console.print(Panel(
+            f"[bold green]🎵 {search_type.upper()} Search Results - {description}[/bold green]\n"
+            f"Found {len(results)} results",
+            title="Search Results", border_style="green"
+        ))
+        
+        for i, result in enumerate(results, 1):
+            song_name = result.get("song_name", "N/A")
+            artist_name = result.get("artist_name", "N/A")
+            genres = ', '.join(result.get("genres", []))
+            score = result.get("score", 0) if search_type == "vector" else None
+            lyrics = result.get("lyrics", "N/A")[:100] + "..." if result.get("lyrics") else "N/A"
+            language = result.get("language_code", "N/A")
+            
+            charts_info = ""
+            charts = result.get("charts", {})
+            for country, chart_entries in charts.items():
+                if chart_entries:
+                    latest_entry = chart_entries[0]
+                    rank_data = latest_entry.get("rank", {})
+                    if isinstance(rank_data, dict) and "$numberInt" in rank_data:
+                        rank = rank_data["$numberInt"]
+                    elif isinstance(rank_data, (int, str)):
+                        rank = str(rank_data)
+                    else:
+                        rank = "N/A"
+                    timestamp = latest_entry.get("timestamp", "N/A")
+                    charts_info += f"  - [bold]{country}:[/bold] Rank {rank} (as of {timestamp})\n"
+            
+            panel_content = (
+                f"[bold blue]Result {i}[/bold blue]\n\n"
+                f"[bold]Song Name:[/bold] {song_name}\n"
+                f"[bold]Artist:[/bold] {artist_name}\n"
+                f"[bold]Genres:[/bold] {genres}\n"
+                f"[bold]Language:[/bold] {language}\n"
+            )
+            
+            if score is not None:
+                panel_content += f"[bold]Similarity Score:[/bold] {score:.4f}\n"
+            
+            panel_content += (
+                f"[bold]First Seen:[/bold] {result.get('first_seen', 'N/A')}\n"
+                f"[bold]Lyrics Preview:[/bold] {lyrics}\n"
+            )
+            
+            if charts_info:
+                panel_content += f"\n[bold]Latest Chart Ranks:[/bold]\n{charts_info}"
+            
+            console.print(Panel(
+                panel_content,
+                border_style="green"
+            ))
+
     async def run(self):
         """Main application loop."""
         console.print(Panel(
@@ -1362,7 +1618,8 @@ Provide only the JSON output. Do not include any other text or explanation.
             "• Find all songs that were ranked #1 in Brazil.\n"
             "• Show me songs by Ponte Perro that charted in Argentina.\n"
             "• List all Latin songs with Spanish lyrics.\n"
-            "• Find songs longer than 3 minutes with high language probability.\n\n"
+            "• Find songs longer than 3 minutes with high language probability.\n"
+            "• Find similar songs (uses loaded audio/lyrics embeddings)\n\n"
             "[bold green]Special Commands:[/bold green]\n"
             "• /load local/path/to/file - Preprocess an audio file with MERT\n"
             "• /loadtext --text 'lyrics here' [--lang eng] [--song_id XYZ] - Embed lyrics text and optionally save to DB\n"
@@ -1427,9 +1684,12 @@ Provide only the JSON output. Do not include any other text or explanation.
                         "• Find all songs that were ranked #1 in Brazil.\n"
                         "• Show me songs by Ponte Perro that charted in Argentina.\n"
                         "• List all Latin songs with Spanish lyrics.\n"
-                        "• Find songs longer than 3 minutes with high language probability.\n\n"
+                        "• Find songs longer than 3 minutes with high language probability.\n"
+                        "• Find similar songs (uses loaded audio/lyrics embeddings)\n\n"
                         "[bold green]Special Commands:[/bold green]\n"
                         "• /load local/path/to/file - Preprocess an audio file with MERT\n"
+                        "• /loadtext --text 'lyrics here' [--lang eng] [--song_id XYZ] - Embed lyrics text and optionally save to DB\n"
+                        "• /loadtext --file /path/to/lyrics.txt [--lang spa] [--song_id XYZ] - Embed lyrics from a file\n"
                         "• /search - Find similar songs using vector search (requires loaded audio)\n"
                         "• /search --file audio.mp3 --prompt 'in Germany' - Search with file and filters\n"
                         "• /search --file audio.mp3 - Search with new file only\n"
@@ -1443,66 +1703,38 @@ Provide only the JSON output. Do not include any other text or explanation.
                         f"[bold green]Hello! 👋[/bold green]\n\n"
                         f"I'm your music database assistant. I can help you:\n"
                         f"• Search for songs and artists\n"
-                        f"• Find similar songs using audio\n"
+                        f"• Find similar songs using audio or lyrics\n"
                         f"• Answer questions about the music database\n\n"
                         f"Just ask me anything about music!",
                         title="Chat", border_style="green"
                     ))
                 
                 elif category == "search":
-                    # Use a typing indicator while the LLM and DB are working
-                    with console.status("[bold green]Searching database...[/bold green]", spinner="dots"):
-                        # 1. Get the structured query from the LLM
-                        query_json_str = await self.query_generator.get_query_from_llm(user_input, self.collection_schema)
+                    # Enhanced search: determine embeddings and search parameters
+                    with console.status("[bold green]Analyzing search request...[/bold green]", spinner="dots"):
+                        # 1. Determine which embeddings to use
+                        embedding_decision = await self._determine_search_embeddings(user_input)
                         
-                        try:
-                            query_dict = json.loads(query_json_str)
-                        except json.JSONDecodeError:
-                            console.print(Panel(
-                                f"[red]Error parsing LLM response. Got: {query_json_str}[/red]",
-                                title="LLM Error", border_style="red"
-                            ))
-                            continue
-
-                        # 2. Execute the query
-                        filter_criteria = query_dict.get('filter', {})
-                        projection = query_dict.get('projection', {})
-                        sort = query_dict.get('sort', None)
-                        limit = query_dict.get('limit', 10) # Default limit
-
-                        # Check for empty filter to prevent full collection scans
-                        if not filter_criteria or filter_criteria == {}:
-                             console.print(Panel(
-                                "[yellow]Your query was too broad. Please be more specific![/yellow]",
-                                title="Query Error", border_style="yellow"
-                            ))
-                             continue
-
-                        # Execute the find operation
-                        cursor = self.collection.find(filter_criteria, projection)
-                        if sort:
-                            cursor = cursor.sort(sort)
-                        if limit:
-                            cursor = cursor.limit(limit)
-
-                        results = list(cursor)
-
-                    # 3. Display the formatted results
-                    console.print()
-                    self._format_results(results)
-                    console.print()
-                
-                elif category == "match":
-                    console.print(Panel(
-                        f"[bold yellow]🎵 Song Matching[/bold yellow]\n\n"
-                        f"It looks like you want to find similar songs!\n\n"
-                        f"Try these commands:\n"
-                        f"• /load /path/to/audio/file.mp3 - Load an audio file\n"
-                        f"• /search --file /path/to/audio/file.mp3 - Search with a new file\n"
-                        f"• /search --prompt 'similar to this style' - Text-based matching\n\n"
-                        f"Or ask me to find songs similar to a specific artist or genre!",
-                        title="Song Matching", border_style="yellow"
-                    ))
+                        # 2. Get search parameters (filters, limit, etc.)
+                        search_params = await self._get_search_parameters_from_llm(user_input)
+                        
+                        console.print(Panel(
+                            f"[bold blue]🔍 Search Analysis[/bold blue]\n\n"
+                            f"Query: {user_input}\n"
+                            f"Embedding Decision: {embedding_decision['reasoning']}\n"
+                            f"Search Type: {embedding_decision['search_type']}\n"
+                            f"Music Embedding: {'✅' if embedding_decision['use_music_embedding'] else '❌'}\n"
+                            f"Text Embedding: {'✅' if embedding_decision['use_text_embedding'] else '❌'}\n"
+                            f"Filters: {json.dumps(search_params.get('filters', {}), indent=2)}",
+                            title="Search Configuration", border_style="blue"
+                        ))
+                    
+                    # 3. Execute the search based on the determined approach
+                    await self._execute_unified_search(
+                        user_input=user_input,
+                        embedding_decision=embedding_decision,
+                        search_params=search_params
+                    )
             
             except Exception as e:
                 console.print(f"[red]An unexpected error occurred: {e}[/red]")
