@@ -96,9 +96,9 @@ class ElevenLabsClient:
                 result = self.client.speech_to_text.convert(
                     file=audio_file,
                     model_id=model_id,
-                    tag_audio_events=tag_audio_events,
-                    language_code=None,
-                    diarize=diarize,
+                    tag_audio_events=False,
+                    language_code="None",
+                    diarize=False,
                 )
             # Normalize to dict-like
             if isinstance(result, dict):
