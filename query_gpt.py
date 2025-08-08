@@ -43,6 +43,7 @@ import numpy as np
 from pathlib import Path
 from transformers import Wav2Vec2FeatureExtractor, AutoModel
 from contextlib import contextmanager
+from elevenlabs.client import ElevenLabs
 
 # Suppress specific warnings
 warnings.filterwarnings("ignore", message="feature_extractor_cqt requires the libray 'nnAudio'")
@@ -73,36 +74,41 @@ class ElevenLabsClient:
         self.base_url = "https://api.elevenlabs.io/v1"
         if not self.api_key:
             self.enabled = False
+            self.client = None
         else:
             self.enabled = True
+            self.client = ElevenLabs(api_key=self.api_key)
 
-    def transcribe_sync(self, wav_path: str, model_id: str = "scribe_v1") -> Dict[str, Any] | None:
+    def transcribe_sync(
+        self,
+        audio_path: str,
+        model_id: str = "scribe_v1",
+        language_code: str = "eng",
+        diarize: bool = True,
+        tag_audio_events: bool = True,
+    ) -> Dict[str, Any] | None:
         if not self.enabled:
             return None
-        if not os.path.exists(wav_path):
+        if not os.path.exists(audio_path):
             return None
-        files = {
-            'audio': (os.path.basename(wav_path), open(wav_path, 'rb'), 'audio/wav')
-        }
-        data = {'model_id': model_id}
         try:
-            resp = requests.post(
-                f"{self.base_url}/speech-to-text",
-                headers={"xi-api-key": self.api_key},
-                files=files,
-                data=data,
-                timeout=60,
-            )
-            resp.raise_for_status()
-            return resp.json()
+            with open(audio_path, "rb") as audio_file:
+                result = self.client.speech_to_text.convert(
+                    file=audio_file,
+                    model_id=model_id,
+                    tag_audio_events=tag_audio_events,
+                    language_code=language_code,
+                    diarize=diarize,
+                )
+            # Normalize to dict-like
+            if isinstance(result, dict):
+                return result
+            # Fallback: try to extract attributes
+            text_val = getattr(result, "text", None)
+            return {"text": text_val} if text_val is not None else {"raw": str(result)}
         except Exception as e:
             console.print(f"[red]Transcription request failed: {e}[/red]")
             return None
-        finally:
-            try:
-                files['audio'][1].close()
-            except Exception:
-                pass
 
 class MERTEmbedder:
     def __init__(
@@ -945,7 +951,7 @@ Provide only the JSON output. Do not include any other text or explanation.
 
     async def _transcribe_audio(self, wav_path: str) -> Dict[str, Any]:
         """
-        Transcribes the audio file using ElevenLabs API.
+        Transcribes the audio file using ElevenLabs API (SDK).
         Returns a dictionary containing the transcription text.
         """
         elevenlabs_client = ElevenLabsClient()
@@ -957,8 +963,9 @@ Provide only the JSON output. Do not include any other text or explanation.
             return {"text": "Transcription failed due to missing API key."}
 
         console.print(f"[blue]Transcribing audio file: {wav_path}[/blue]")
-        transcription_result = elevenlabs_client.transcribe_sync(wav_path)
-        if transcription_result:
+        # Offload blocking SDK call to a worker thread so it doesn't block the event loop
+        transcription_result = await asyncio.to_thread(elevenlabs_client.transcribe_sync, wav_path)
+        if transcription_result and transcription_result.get("text"):
             console.print(f"[green]Transcription successful. Text: {transcription_result['text']}[/green]")
             return transcription_result
         else:
