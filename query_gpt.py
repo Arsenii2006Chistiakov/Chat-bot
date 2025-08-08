@@ -633,6 +633,156 @@ class MongoChatbot:
             "TREND_STATUS": "string"
         }
 
+    def _process_lyrics_text(self, lyrics_text: str, language_code: Optional[str] = None) -> Dict[str, Any] | None:
+        """
+        Split lyrics into sentences and compute sentence embeddings + mean pooled embedding.
+        Returns an embeddings doc similar to the external app implementation.
+        """
+        if not lyrics_text or str(lyrics_text).strip() == "":
+            return None
+        if self.text_embeddings_model is None:
+            console.print(Panel(
+                "[red]Text embeddings model not available.[/red]",
+                title="Embedding Error", border_style="red"
+            ))
+            return None
+        try:
+            sentences = get_sentences(lyrics_text, language_code)
+            if not sentences:
+                return None
+            embeddings = self.text_embeddings_model.get_embeddings(sentences)
+            mean_embedding = np.mean(embeddings, axis=0)
+            embeddings_doc: Dict[str, Any] = {
+                "language_code": language_code,
+                "sentences": sentences,
+                "embeddings": embeddings.tolist(),
+                "mean_embedding": mean_embedding.tolist(),
+                "embedding_dim": int(embeddings.shape[1]),
+                "num_sentences": int(len(sentences)),
+                "processed_at": datetime.now().isoformat(),
+            }
+            return embeddings_doc
+        except Exception as e:
+            console.print(Panel(
+                f"[red]Error embedding lyrics text: {str(e)}[/red]",
+                title="Embedding Error", border_style="red"
+            ))
+            return None
+
+    def _save_text_embedding_to_mongodb(self, song_id: str, embeddings_doc: Dict[str, Any]) -> bool:
+        """
+        Save mean pooled text embedding to the current collection under `text_embedding`.
+        """
+        try:
+            result = self.collection.update_one(
+                {"song_id": song_id},
+                {
+                    "$set": {
+                        "text_embedding": embeddings_doc["mean_embedding"],
+                        "embedding_dim": embeddings_doc["embedding_dim"],
+                        "num_sentences": embeddings_doc["num_sentences"],
+                        "embedding_processed_at": datetime.now().isoformat(),
+                    }
+                }
+            )
+            return result.matched_count > 0
+        except Exception as e:
+            console.print(Panel(
+                f"[red]Error saving text embedding to MongoDB: {str(e)}[/red]",
+                title="MongoDB Error", border_style="red"
+            ))
+            return False
+
+    async def _handle_loadtext_command(self, args_line: str):
+        """
+        Handle the /loadtext command.
+        Usage examples:
+          /loadtext --text "some lyrics here" --lang eng [--song_id XYZ]
+          /loadtext --file /path/to/lyrics.txt --lang spa [--song_id XYZ]
+        If --song_id is provided, will also save the mean embedding to MongoDB under `text_embedding`.
+        Always keeps the current mean text embedding in memory for vector search.
+        """
+        # Default values
+        lyrics_text: str | None = None
+        language_code: Optional[str] = None
+        song_id: str | None = None
+        file_path: str | None = None
+
+        # Simple arg parsing
+        parts = args_line.strip().split()
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token == "--text" and i + 1 < len(parts):
+                # Collect the rest as text
+                lyrics_text = " ".join(parts[i + 1:])
+                break
+            elif token == "--file" and i + 1 < len(parts):
+                file_path = parts[i + 1]
+                i += 2
+                continue
+            elif token == "--lang" and i + 1 < len(parts):
+                language_code = parts[i + 1]
+                i += 2
+                continue
+            elif token == "--song_id" and i + 1 < len(parts):
+                song_id = parts[i + 1]
+                i += 2
+                continue
+            else:
+                i += 1
+
+        # If not provided via flags, treat the raw remainder as text
+        if lyrics_text is None and file_path is None:
+            raw = args_line.strip()
+            lyrics_text = raw if raw else None
+
+        if file_path and not lyrics_text:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    lyrics_text = f.read()
+            except Exception as e:
+                console.print(Panel(
+                    f"[red]Failed to read file: {e}[/red]",
+                    title="File Error", border_style="red"
+                ))
+                return
+
+        if not lyrics_text:
+            console.print(Panel(
+                "[red]Please provide lyrics via --text or --file[/red]",
+                title="Usage Error", border_style="red"
+            ))
+            return
+
+        embeddings_doc = self._process_lyrics_text(lyrics_text, language_code)
+        if not embeddings_doc:
+            console.print(Panel(
+                "[red]Could not generate embeddings for the provided lyrics.[/red]",
+                title="Embedding Error", border_style="red"
+            ))
+            return
+
+        # Keep in memory for search
+        self.current_text_embedding = np.array(embeddings_doc["mean_embedding"], dtype=np.float32)
+
+        saved_msg = ""
+        if song_id:
+            if self._save_text_embedding_to_mongodb(song_id, embeddings_doc):
+                saved_msg = f"\nSaved to MongoDB for song_id: {song_id}"
+            else:
+                saved_msg = f"\n[Warning] No document updated for song_id: {song_id}"
+
+        console.print(Panel(
+            f"[bold green]✅ Text Loaded & Embedded[/bold green]\n\n"
+            f"Sentences: {embeddings_doc['num_sentences']}\n"
+            f"Embedding dim: {embeddings_doc['embedding_dim']}\n"
+            f"Language: {embeddings_doc['language_code']}\n"
+            f"You can now run /search (uses the loaded text embedding)."
+            f"{saved_msg}",
+            title="Success", border_style="green"
+        ))
+
     def _format_results(self, documents: List[Dict[str, Any]]):
         """Formats the list of documents for a nice display."""
         if not documents:
