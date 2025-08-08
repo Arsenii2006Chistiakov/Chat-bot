@@ -1445,6 +1445,9 @@ Provide only the JSON output. Do not include any other text or explanation.
             limit = search_params.get('limit', 10)
             description = search_params.get('description', 'Custom search')
             
+            console.print(f"[blue]Search type: {search_type}[/blue]")
+            console.print(f"[blue]MongoDB search filters: {filters}[/blue]")
+            
             console.print(Panel(
                 f"[bold green]🎵 Executing {search_type.upper()} Search[/bold green]\n"
                 f"Description: {description}\n"
@@ -1469,7 +1472,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                     f"[red]Unknown search type: {search_type}[/red]",
                     title="Search Error", border_style="red"
                 ))
-                
+        
         except Exception as e:
             console.print(Panel(
                 f"[red]❌ Error executing search: {str(e)}[/red]",
