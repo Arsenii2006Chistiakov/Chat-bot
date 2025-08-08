@@ -83,7 +83,7 @@ class ElevenLabsClient:
         self,
         audio_path: str,
         model_id: str = "scribe_v1",
-        language_code: str = "None",
+        language_code=None,
         diarize: bool = True,
         tag_audio_events: bool = True,
     ) -> Dict[str, Any] | None:
@@ -97,7 +97,7 @@ class ElevenLabsClient:
                     file=audio_file,
                     model_id=model_id,
                     tag_audio_events=False,
-                    language_code="None",
+                    language_code=language_code,
                     diarize=False,
                 )
             # Normalize to dict-like
