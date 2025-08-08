@@ -46,6 +46,7 @@ from contextlib import contextmanager
 from elevenlabs.client import ElevenLabs
 from sentence_embeddings import MultilingualSentenceEmbeddings
 from split_lyrics import get_sentences
+from torch import nn
 
 # Suppress specific warnings
 warnings.filterwarnings("ignore", message="feature_extractor_cqt requires the libray 'nnAudio'")
@@ -56,6 +57,27 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="torchaudio")
 
 # Initialize Rich console
 console = Console()
+
+class SimpleFCNN(nn.Module):
+    """
+    A small fully-connected neural network for multi-label genre prediction.
+    Uses BCEWithLogitsLoss downstream, so outputs raw logits.
+    """
+
+    def __init__(self, input_dim: int, output_dim: int) -> None:
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(input_dim, 512),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),
+            nn.Linear(256, output_dim),
+        )
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        return self.network(features)
 
 @contextmanager
 def temp_file(suffix=None):
@@ -602,6 +624,28 @@ class MongoChatbot:
             self.mert_embedder = None  # Will be initialized on first use
             self.current_embedding = None  # Store the current audio embedding
             self.current_transcription_text = None  # Store last transcription text
+            
+            # Initialize genre classification model
+            self.genre_model = None
+            self.genre_labels = None
+            try:
+                console.print("[blue]Loading genre classification model...[/blue]")
+                if os.path.exists("genre_fcnn.pt"):
+                    checkpoint = torch.load("genre_fcnn.pt", map_location="cpu")
+                    input_dim = checkpoint["input_dim"]
+                    self.genre_labels = checkpoint["output_labels"]
+                    self.genre_model = SimpleFCNN(input_dim=input_dim, output_dim=len(self.genre_labels))
+                    self.genre_model.load_state_dict(checkpoint["model_state_dict"])
+                    self.genre_model.eval()
+                    console.print(f"[green]✅ Genre classification model loaded successfully[/green]")
+                    console.print(f"[blue]Available genres: {', '.join(self.genre_labels)}[/blue]")
+                else:
+                    console.print("[yellow]⚠️ Genre classification model file 'genre_fcnn.pt' not found[/yellow]")
+            except Exception as e:
+                console.print(f"[red]❌ Error loading genre classification model: {e}[/red]")
+                self.genre_model = None
+                self.genre_labels = None
+            
             # Initialize text embeddings model for lyrics
             try:
                 console.print("[blue]Initializing MultilingualSentenceEmbeddings model...[/blue]")
@@ -729,6 +773,39 @@ class MongoChatbot:
                 title="MongoDB Error", border_style="red"
             ))
             return False
+
+    def _predict_genres(self, embedding: torch.Tensor) -> List[str]:
+        """
+        Predict genres for a given MERT embedding using the loaded genre classification model.
+        
+        Args:
+            embedding: MERT embedding tensor of shape [1024]
+            
+        Returns:
+            List[str]: List of predicted genre labels
+        """
+        if self.genre_model is None or self.genre_labels is None:
+            return []
+        
+        try:
+            with torch.no_grad():
+                # Ensure embedding is the right shape and device
+                if embedding.dim() == 1:
+                    embedding = embedding.unsqueeze(0)  # Add batch dimension
+                
+                # Get logits from model
+                logits = self.genre_model(embedding)
+                
+                # Apply sigmoid to get probabilities
+                probabilities = torch.sigmoid(logits)
+                
+                # Get the top-1 predicted genre (highest probability)
+                top_index = torch.argmax(probabilities, dim=1)[0]
+                predicted_genres = [self.genre_labels[top_index]]
+                return predicted_genres
+        except Exception as e:
+            console.print(f"[red]Error predicting genres: {e}[/red]")
+            return []
 
     async def _handle_loadtext_command(self, args_line: str):
         """
@@ -887,6 +964,17 @@ class MongoChatbot:
             embedding = self.mert_embedder.embedding_from_waveform(waveform)
             self.current_embedding = embedding
 
+            # Predict genres using the loaded model
+            genre_info = ""
+            try:
+                predicted_genres = self._predict_genres(embedding)
+                if predicted_genres:
+                    genre_info = f"\nPredicted genres: {', '.join(predicted_genres)}"
+                else:
+                    genre_info = "\n[Note] Genre prediction not available or failed."
+            except Exception as e:
+                genre_info = f"\n[Note] Genre prediction error: {e}"
+
             # Await transcription
             transcription_result = await transcription_task
             self.current_transcription_text = transcription_result.get("text", "")
@@ -922,7 +1010,7 @@ class MongoChatbot:
                 f"[bold green]✅ Loaded & Stored[/bold green]\n\n"
                 f"Embedding: {list(embedding.shape)}\n"
                 f"Transcript chars: {len(self.current_transcription_text or '')}\n\n"
-                f"You can now run /search (uses the loaded embedding)." + text_embed_info,
+                f"You can now run /search (uses the loaded embedding)." + text_embed_info + genre_info,
                 title="Success", border_style="green"
             ))
         except Exception as e:
