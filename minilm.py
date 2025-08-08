@@ -7,25 +7,25 @@ from typing import List, Dict, Any
 
 # Determine local cache directory for the model, with fallbacks
 def _resolve_local_model_path() -> str | None:
-    candidates = []
-    # Highest priority: environment variable
-    env_path = os.getenv("MINILM_LOCAL_PATH")
-    if env_path:
-        candidates.append(os.path.expanduser(env_path))
-    # Common local directories relative to the project
-    candidates.extend([
-        os.path.abspath("my_minilm_cache"),
-        os.path.abspath("models/my_minilm_cache"),
-        os.path.expanduser("~/lyrics_embedding_api/my_minilm_cache"),
-        "/home/arsenii/lyrics_embedding_api/my_minilm_cache",
-    ])
+    # candidates = []
+    # # Highest priority: environment variable
+    # env_path = os.getenv("MINILM_LOCAL_PATH")
+    # if env_path:
+    #     candidates.append(os.path.expanduser(env_path))
+    # # Common local directories relative to the project
+    # candidates.extend([
+    #     os.path.abspath("my_minilm_cache"),
+    #     os.path.abspath("models/my_minilm_cache"),
+    #     os.path.expanduser("~/lyrics_embedding_api/my_minilm_cache"),
+    #     "/home/arsenii/lyrics_embedding_api/my_minilm_cache",
+    # ])
 
-    for path in candidates:
-        if os.path.exists(path) and os.path.isdir(path) and os.listdir(path):
-            print(f"Local model cache found at: {path}")
-            return path
-    print("Warning: No local MiniLM cache directory found. Will load by model id (may download).")
-    return None
+    # for path in candidates:
+    #     if os.path.exists(path) and os.path.isdir(path) and os.listdir(path):
+    #         print(f"Local model cache found at: {path}")
+    #         return path
+    # print("Warning: No local MiniLM cache directory found. Will load by model id (may download).")
+    return "/home/arsenii/lyrics_embedding_api/my_minilm_cache"
 
 local_model_path = _resolve_local_model_path()
 
