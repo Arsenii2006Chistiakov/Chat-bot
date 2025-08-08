@@ -774,12 +774,13 @@ class MongoChatbot:
             ))
             return False
 
-    def _predict_genres(self, embedding: torch.Tensor) -> List[str]:
+    def _predict_genres(self, music_embedding: torch.Tensor, text_embedding: Optional[torch.Tensor] = None) -> List[str]:
         """
-        Predict genres for a given MERT embedding using the loaded genre classification model.
+        Predict genres using concatenated music and text embeddings.
         
         Args:
-            embedding: MERT embedding tensor of shape [1024]
+            music_embedding: MERT embedding tensor of shape [1024]
+            text_embedding: Optional text embedding tensor of shape [768] or similar
             
         Returns:
             List[str]: List of predicted genre labels
@@ -789,12 +790,23 @@ class MongoChatbot:
         
         try:
             with torch.no_grad():
-                # Ensure embedding is the right shape and device
-                if embedding.dim() == 1:
-                    embedding = embedding.unsqueeze(0)  # Add batch dimension
+                # Prepare text embedding (use zeros if not available)
+                if text_embedding is None:
+                    # Use zeros for text embedding if not available
+                    # Assuming text embedding dimension is 768 (common for sentence transformers)
+                    text_embedding = torch.zeros(768, dtype=music_embedding.dtype, device=music_embedding.device)
+                elif text_embedding.dim() == 1:
+                    text_embedding = text_embedding.unsqueeze(0)  # Add batch dimension
+                
+                # Ensure music embedding has batch dimension
+                if music_embedding.dim() == 1:
+                    music_embedding = music_embedding.unsqueeze(0)  # Add batch dimension
+                
+                # Concatenate music + text embeddings (same order as training)
+                combined_embedding = torch.cat([music_embedding, text_embedding], dim=1)
                 
                 # Get logits from model
-                logits = self.genre_model(embedding)
+                logits = self.genre_model(combined_embedding)
                 
                 # Apply sigmoid to get probabilities
                 probabilities = torch.sigmoid(logits)
@@ -964,17 +976,6 @@ class MongoChatbot:
             embedding = self.mert_embedder.embedding_from_waveform(waveform)
             self.current_embedding = embedding
 
-            # Predict genres using the loaded model
-            genre_info = ""
-            try:
-                predicted_genres = self._predict_genres(embedding)
-                if predicted_genres:
-                    genre_info = f"\nPredicted genres: {', '.join(predicted_genres)}"
-                else:
-                    genre_info = "\n[Note] Genre prediction not available or failed."
-            except Exception as e:
-                genre_info = f"\n[Note] Genre prediction error: {e}"
-
             # Await transcription
             transcription_result = await transcription_task
             self.current_transcription_text = transcription_result.get("text", "")
@@ -998,6 +999,22 @@ class MongoChatbot:
                     text_embed_info = "\n[Note] No transcript text returned for text embedding."
             except Exception as e:
                 text_embed_info = f"\n[Note] Text embedding error: {e}"
+
+            # Predict genres using both music and text embeddings
+            genre_info = ""
+            try:
+                # Convert text embedding to tensor if available
+                text_embedding_tensor = None
+                if hasattr(self, 'current_text_embedding') and self.current_text_embedding is not None:
+                    text_embedding_tensor = torch.tensor(self.current_text_embedding, dtype=embedding.dtype, device=embedding.device)
+                
+                predicted_genres = self._predict_genres(embedding, text_embedding_tensor)
+                if predicted_genres:
+                    genre_info = f"\nPredicted genres: {', '.join(predicted_genres)}"
+                else:
+                    genre_info = "\n[Note] Genre prediction not available or failed."
+            except Exception as e:
+                genre_info = f"\n[Note] Genre prediction error: {e}"
 
             # Cleanup temp wav
             try:
