@@ -83,6 +83,7 @@ class ElevenLabsClient:
         self,
         audio_path: str,
         model_id: str = "scribe_v1",
+        language_code: str = "None",
         diarize: bool = True,
         tag_audio_events: bool = True,
     ) -> Dict[str, Any] | None:
