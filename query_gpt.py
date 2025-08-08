@@ -97,7 +97,7 @@ class ElevenLabsClient:
                     file=audio_file,
                     model_id=model_id,
                     tag_audio_events=tag_audio_events,
-                    language_code=language_code,
+                    language_code=None,
                     diarize=diarize,
                 )
             # Normalize to dict-like
