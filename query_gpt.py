@@ -83,9 +83,9 @@ class ElevenLabsClient:
         self,
         audio_path: str,
         model_id: str = "scribe_v1",
-        language_code=None,
-        diarize: bool = True,
-        tag_audio_events: bool = True,
+        language_code: str | None = None,
+        diarize: bool | None = False,
+        tag_audio_events: bool | None = False,
     ) -> Dict[str, Any] | None:
         if not self.enabled:
             return None
@@ -93,12 +93,20 @@ class ElevenLabsClient:
             return None
         try:
             with open(audio_path, "rb") as audio_file:
+                kwargs: Dict[str, Any] = {
+                    "model_id": model_id,
+                }
+                # Only include optional params if explicitly provided
+                if tag_audio_events is not None:
+                    kwargs["tag_audio_events"] = tag_audio_events
+                if language_code is not None:
+                    kwargs["language_code"] = language_code
+                if diarize is not None:
+                    kwargs["diarize"] = diarize
+
                 result = self.client.speech_to_text.convert(
                     file=audio_file,
-                    model_id=model_id,
-                    tag_audio_events=False,
-                    language_code=language_code,
-                    diarize=False,
+                    **kwargs,
                 )
             # Normalize to dict-like
             if isinstance(result, dict):
