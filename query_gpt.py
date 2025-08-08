@@ -1004,6 +1004,7 @@ Given a user's search comment, determine what additional filters should be appli
 Available fields in the database:
 - genres: Array of strings (e.g., ["Latin", "Pop", "RKT"])
 - charts: Object with country codes as keys (e.g., "Germany", "Brazil", "Argentina")
+  Each country chart contains an array of objects: [{{"timestamp": "2025-07-08", "rank": 2}}, ...]
 - language_code: String (e.g., "spa", "eng", "por")
 - language_probability: Number (0-1)
 - audio_metadata.duration: Number (in seconds)
@@ -1020,10 +1021,14 @@ Return a JSON object with the following structure:
 
 Examples:
 - "in Germany" → {{"filters": {{"charts.Germany": {{"$exists": true}}}}, "limit": 10, "description": "Songs that charted in Germany"}}
+- "trending in Germany in July" → {{"filters": {{"charts.Germany": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-07-01", "$lt": "2025-08-01"}}}}}}}}, "limit": 10, "description": "Songs trending in Germany during July 2025"}}
+- "popular in Brazil in March" → {{"filters": {{"charts.Brazil": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-03-01", "$lt": "2025-04-01"}}}}}}}}, "limit": 15, "description": "Songs popular in Brazil during March 2025"}}
 - "Latin songs" → {{"filters": {{"genres": "Latin"}}, "limit": 10, "description": "Latin genre songs"}}
 - "Spanish lyrics" → {{"filters": {{"language_code": "spa"}}, "limit": 10, "description": "Songs with Spanish lyrics"}}
-- "popular in Brazil" → {{"filters": {{"charts.Brazil": {{"$exists": true}}}}, "limit": 15, "description": "Songs popular in Brazil"}}
 - "long songs" → {{"filters": {{"audio_metadata.duration": {{"$gt": 180}}}}, "limit": 10, "description": "Songs longer than 3 minutes"}}
+- "songs trending in Argentina last month" → {{"filters": {{"charts.Argentina": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-06-01", "$lt": "2025-07-01"}}}}}}}}, "limit": 10, "description": "Songs trending in Argentina during June 2025"}}
+
+IMPORTANT: For date-based chart queries, use $elemMatch to find chart entries within the specified date range. The timestamp format is "YYYY-MM-DD".
 
 Provide only the JSON output. Do not include any other text or explanation.
 """
