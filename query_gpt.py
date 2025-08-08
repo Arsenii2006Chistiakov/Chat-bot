@@ -1500,7 +1500,28 @@ Provide only the JSON output. Do not include any other text or explanation.
             ))
             return
         
-        # Build vector search pipeline
+        # Separate basic filters (for vector search) from complex filters (for post-match)
+        basic_filters = {}
+        complex_filters = {}
+        
+        if filters and filters != {}:
+            for key, value in filters.items():
+                # Check if this is a complex filter that $vectorSearch doesn't support
+                if isinstance(value, dict):
+                    # Check for unsupported operators in vector search
+                    unsupported_ops = ['$exists', '$regex', '$text', '$geoWithin', '$geoIntersects']
+                    has_unsupported = any(op in value for op in unsupported_ops)
+                    
+                    if has_unsupported:
+                        complex_filters[key] = value
+                        console.print(f"[yellow]Moving complex filter '{key}: {value}' to post-vector match[/yellow]")
+                    else:
+                        basic_filters[key] = value
+                else:
+                    # Simple equality filters are supported
+                    basic_filters[key] = value
+        
+        # Build vector search stage with only basic filters
         vector_search_stage = {
             "index": "lyrics_n_music_search",
             "path": vector_path,
@@ -1509,20 +1530,34 @@ Provide only the JSON output. Do not include any other text or explanation.
             "limit": limit
         }
         
-        if filters and filters != {}:
-            vector_search_stage["filter"] = filters
+        # Only add basic filters to vector search
+        if basic_filters:
+            vector_search_stage["filter"] = basic_filters
+            console.print(f"[blue]Vector search filters: {basic_filters}[/blue]")
         
+        # Build the pipeline
         pipeline = [
             {"$vectorSearch": vector_search_stage},
-            {"$addFields": {"score": {"$meta": "vectorSearchScore"}}},
+            {"$addFields": {"score": {"$meta": "vectorSearchScore"}}}
+        ]
+        
+        # Add complex filters as a separate $match stage after vector search
+        if complex_filters:
+            pipeline.append({"$match": complex_filters})
+            console.print(f"[blue]Post-vector match filters: {complex_filters}[/blue]")
+        
+        # Add projection and sorting
+        pipeline.extend([
             {"$project": {
                 "_id": 1, "song_id": 1, "song_name": 1, "artist_name": 1,
                 "lyrics": 1, "genres": 1, "score": 1, "first_seen": 1,
                 "charts": 1, "language_code": 1, "audio_metadata": 1
             }},
-            {"$sort": {"score": -1}}
-        ]
-        print(pipeline)
+            {"$sort": {"score": -1}},
+            {"$limit": limit}
+        ])
+        
+        console.print(f"[blue]Final pipeline: {pipeline}[/blue]")
         results = list(self.collection.aggregate(pipeline))
         self._display_search_results(results, description, "vector")
 
