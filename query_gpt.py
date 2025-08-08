@@ -22,6 +22,8 @@ import os
 import json
 import sys
 import warnings
+import asyncio
+import requests
 from typing import List, Dict, Any
 from datetime import datetime
 from dotenv import load_dotenv
@@ -64,6 +66,44 @@ def temp_file(suffix=None):
         except OSError:
             pass
 
+class ElevenLabsClient:
+    def __init__(self, api_key: str | None = None):
+        load_dotenv()
+        self.api_key = api_key or os.getenv("ELEVENLABS_API_KEY")
+        self.base_url = "https://api.elevenlabs.io/v1"
+        if not self.api_key:
+            self.enabled = False
+        else:
+            self.enabled = True
+
+    def transcribe_sync(self, wav_path: str, model_id: str = "scribe_v1") -> Dict[str, Any] | None:
+        if not self.enabled:
+            return None
+        if not os.path.exists(wav_path):
+            return None
+        files = {
+            'audio': (os.path.basename(wav_path), open(wav_path, 'rb'), 'audio/wav')
+        }
+        data = {'model_id': model_id}
+        try:
+            resp = requests.post(
+                f"{self.base_url}/speech-to-text",
+                headers={"xi-api-key": self.api_key},
+                files=files,
+                data=data,
+                timeout=60,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            console.print(f"[red]Transcription request failed: {e}[/red]")
+            return None
+        finally:
+            try:
+                files['audio'][1].close()
+            except Exception:
+                pass
+
 class MERTEmbedder:
     def __init__(
         self,
@@ -99,7 +139,48 @@ class MERTEmbedder:
             )
         
         self.mert_model.eval()
-        #console.print("[green]MERT model initialized successfully[/green]")
+
+    def extract_snippet_and_waveform(self, audio_path: str) -> tuple[torch.Tensor, str]:
+        """
+        Decode audio once with pydub, extract ~20s snippet, export to a temp wav, and load waveform.
+        Returns (waveform_tensor [1, T], wav_path). Caller is responsible for deleting wav_path.
+        """
+        try:
+            audio = AudioSegment.from_file(str(audio_path))
+        except Exception as e:
+            console.print(f"[red]Error loading audio file {audio_path}: {str(e)}[/red]")
+            raise
+        # Extract snippet (first 20s to match user's change)
+        snippet = audio[:20000]
+        # Export snippet to a persistent temp wav file
+        fd, wav_path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+        snippet.export(wav_path, format="wav")
+        # Load with torchaudio
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            waveform, sr = torchaudio.load(wav_path)
+        # Resample if needed
+        if sr != self.target_sr:
+            resampler = T.Resample(sr, self.target_sr, dtype=waveform.dtype)
+            waveform = resampler(waveform)
+        # Force mono
+        if waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+        return waveform, wav_path
+
+    def embedding_from_waveform(self, waveform: torch.Tensor) -> torch.Tensor:
+        inputs = self.mert_processor(
+            waveform.squeeze().numpy(),
+            sampling_rate=self.target_sr,
+            return_tensors="pt"
+        )
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            outputs = self.mert_model(**inputs, output_hidden_states=True)
+        hidden_states = torch.stack(outputs.hidden_states)  # [layers, batch, time, dim]
+        embedding = hidden_states.mean(dim=[0, 1, 2])  # [1024]
+        return embedding.cpu()
 
     def _extract_middle_snippet_local(self, audio_path: str) -> torch.Tensor:
         """
@@ -118,15 +199,8 @@ class MERTEmbedder:
             console.print(f"[red]Error loading audio file {audio_path}: {str(e)}[/red]")
             raise
         
-        # Calculate middle position
-        total_duration = len(audio)  # in milliseconds
-        snippet_duration_ms = self.snippet_duration * 1000
-        
-        start_ms = (total_duration - snippet_duration_ms) // 2
-        end_ms = start_ms + snippet_duration_ms
-        
         # Extract snippet
-        snippet = audio[start_ms:end_ms]
+        snippet = audio[:20000]
         
         # Save to temporary file and load with torchaudio using modern approach
         with temp_file(suffix='.wav') as wav_path:
@@ -163,16 +237,8 @@ class MERTEmbedder:
             if not audio_path.exists():
                 raise FileNotFoundError(f"Audio file not found: {audio_path}")
             
-            #console.print(f"[blue]Processing local file: {audio_path}[/blue]")
-            
-            # Extract middle snippet
-            waveform = self._extract_middle_snippet_local(audio_path)
-            
-            # Print waveform shape for debugging
-            # console.print(f"[yellow]Waveform shape: {waveform.shape}[/yellow]")
-            # console.print(f"[yellow]Sample rate: {self.target_sr} Hz[/yellow]")
-            # console.print(f"[yellow]Duration: {waveform.shape[1] / self.target_sr:.2f} seconds[/yellow]")
-            
+            # Extract first 20 seconds snippet
+            waveform = self._extract_first_20s_snippet_local(audio_path)
             # Process audio
             inputs = self.mert_processor(
                 waveform.squeeze().numpy(),
@@ -192,9 +258,6 @@ class MERTEmbedder:
             
             # Mean pool over time dimension and layers
             embedding = hidden_states.mean(dim=[0, 1, 2])  # [1024]
-            
-            #console.print(f"[green]Embedding shape: {embedding.shape}[/green]")
-            #console.print(f"[green]Embedding values range: {embedding.min().item():.4f} to {embedding.max().item():.4f}[/green]")
             
             return embedding.cpu()
             
@@ -344,6 +407,7 @@ class MongoChatbot:
                 "[red]Error: MONGO_URI not found in environment variables![/red]",
                 title="Configuration Error", border_style="red"
             ))
+        
             sys.exit(1)
 
         try:
@@ -355,6 +419,7 @@ class MongoChatbot:
             # Initialize MERT embedder for audio processing
             self.mert_embedder = None  # Will be initialized on first use
             self.current_embedding = None  # Store the current audio embedding
+            self.current_transcription_text = None  # Store last transcription text
         except pymongo.errors.ConnectionFailure as e:
             console.print(Panel(
                 f"[red]Error connecting to MongoDB: {e}[/red]",
@@ -440,38 +505,51 @@ class MongoChatbot:
                 border_style="green"
             ))
 
-    def _handle_load_command(self, file_path: str):
-        """Handle the /load command to preprocess an audio file."""
+    async def _handle_load_command(self, file_path: str):
+        """Handle the /load command: preprocess, transcribe, and store in memory."""
         try:
             # Initialize MERT embedder if not already done
             if self.mert_embedder is None:
-                #console.print("[blue]Initializing MERT model for audio processing...[/blue]")
                 self.mert_embedder = MERTEmbedder()
             
-            # Process the audio file
-            #console.print(Panel(
-                # f"[bold blue]🎵 Audio File Preprocessing[/bold blue]\n\n"
-                # f"Processing: {file_path}\n\n"
-                # "This will extract a 15-second snippet from the middle of the file,\n"
-                # "resample to 24kHz, and generate a MERT embedding.",
-                # title="Audio Processing", border_style="blue"
-            #))
-            
-            # Process the file and store the embedding
-            self.current_embedding = self.mert_embedder.process_local_file(file_path)
-            
             console.print(Panel(
-                f"[bold green]✅ Audio Processing Complete![/bold green]\n\n"
-                #f"File: {file_path}\n"
-                #f"Embedding shape: {self.current_embedding.shape}\n"
-                #f"Embedding values range: {self.current_embedding.min().item():.4f} to {self.current_embedding.max().item():.4f}\n\n"
-                #f"[yellow]Type /search to find similar songs in the database![/yellow]",
-                #title="Success", border_style="green"
+                f"[bold blue]🎵 Loading Audio[/bold blue]\n\n"
+                f"File: {file_path}\n"
+                f"Extracting snippet, embedding, and transcribing...",
+                title="Audio Load", border_style="blue"
             ))
-            
+
+            # Extract snippet and waveform, and create temp wav
+            waveform, wav_path = self.mert_embedder.extract_snippet_and_waveform(file_path)
+
+            # Kick off transcription concurrently
+            transcription_task = asyncio.create_task(self._transcribe_audio(wav_path))
+
+            # Compute embedding from waveform
+            embedding = self.mert_embedder.embedding_from_waveform(waveform)
+            self.current_embedding = embedding
+
+            # Await transcription
+            transcription_result = await transcription_task
+            self.current_transcription_text = transcription_result.get("text", "")
+
+            # Cleanup temp wav
+            try:
+                if os.path.exists(wav_path):
+                    os.unlink(wav_path)
+            except Exception:
+                pass
+
+            console.print(Panel(
+                f"[bold green]✅ Loaded & Stored[/bold green]\n\n"
+                f"Embedding: {list(embedding.shape)}\n"
+                f"Transcript chars: {len(self.current_transcription_text or '')}\n\n"
+                f"You can now run /search (uses the loaded embedding).",
+                title="Success", border_style="green"
+            ))
         except Exception as e:
             console.print(Panel(
-                f"[red]❌ Error processing audio file: {str(e)}[/red]",
+                f"[red]❌ Error loading audio: {str(e)}[/red]",
                 title="Error", border_style="red"
             ))
 
@@ -654,9 +732,31 @@ Provide only the JSON output. Do not include any other text or explanation.
                 if self.mert_embedder is None:
                     self.mert_embedder = MERTEmbedder()
                 
-                # Process the file and get embedding
-                embedding = self.mert_embedder.process_local_file(file_path)
+                # Extract snippet and waveform
+                waveform, wav_path = self.mert_embedder.extract_snippet_and_waveform(file_path)
+                
+                # Transcribe audio concurrently
+                transcription_task = asyncio.create_task(self._transcribe_audio(wav_path))
+                
+                # Process the waveform and get embedding
+                embedding = self.mert_embedder.embedding_from_waveform(waveform)
                 query_vector = embedding.numpy().tolist()
+                
+                # Wait for transcription to complete
+                transcription_result = await transcription_task
+                search_comment = transcription_result.get("text", "")
+                print(search_comment)
+                
+                # If user did not pass a prompt, use transcription text as the prompt for parameter extraction
+                if (prompt is None or str(prompt).strip() == "") and search_comment:
+                    prompt = search_comment
+                
+                # Clean up the temporary wav file
+                try:
+                    if os.path.exists(wav_path):
+                        os.unlink(wav_path)
+                except Exception:
+                    pass
                 
                 # console.print(Panel(
                 #     f"[bold green]✅ Audio Processing Complete![/bold green]\n\n"
@@ -843,6 +943,28 @@ Provide only the JSON output. Do not include any other text or explanation.
                 title="Error", border_style="red"
             ))
 
+    async def _transcribe_audio(self, wav_path: str) -> Dict[str, Any]:
+        """
+        Transcribes the audio file using ElevenLabs API.
+        Returns a dictionary containing the transcription text.
+        """
+        elevenlabs_client = ElevenLabsClient()
+        if not elevenlabs_client.enabled:
+            console.print(Panel(
+                "[red]ElevenLabs API key not found. Cannot perform transcription.[/red]",
+                title="Configuration Error", border_style="red"
+            ))
+            return {"text": "Transcription failed due to missing API key."}
+
+        console.print(f"[blue]Transcribing audio file: {wav_path}[/blue]")
+        transcription_result = elevenlabs_client.transcribe_sync(wav_path)
+        if transcription_result:
+            console.print(f"[green]Transcription successful. Text: {transcription_result['text']}[/green]")
+            return transcription_result
+        else:
+            console.print(f"[red]Transcription failed for {wav_path}.[/red]")
+            return {"text": "Transcription failed."}
+
     async def run(self):
         """Main application loop."""
         console.print(Panel(
@@ -877,7 +999,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 if user_input.startswith('/load '):
                     file_path = user_input[6:].strip()  # Remove '/load ' prefix
                     if file_path:
-                        self._handle_load_command(file_path)
+                        await self._handle_load_command(file_path)
                     else:
                         console.print(Panel(
                             "[red]Please provide a file path after /load[/red]\n"
