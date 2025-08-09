@@ -1294,7 +1294,8 @@ Available fields in the database:
 - language_code: String (e.g., "spa", "eng", "por")
 - language_probability: Number (0-1)
 - audio_metadata.duration: Number (in seconds)
-- TREND_STATUS: String (e.g., "PROCESSED", "UNPROCESSED")
+- TREND_STATUS: String (e.g., "PROCESSED", "UNPROCESSED")<- songs which have a consistent trend with videos, don't use if user asks for "trending"
+-country names are always full names like "United States" or "United Kingdom"
 
 User comment: "{search_comment}"
 
