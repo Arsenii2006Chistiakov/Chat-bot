@@ -1030,7 +1030,7 @@ Be specific, detailed, and use the context data to support your analysis.
                     {"role": "system", "content": "You are an expert music analyst and cultural researcher. Provide deep, insightful analysis using the context data provided."},
                     {"role": "user", "content": analysis_prompt}
                 ],
-                max_tokens=1000,
+                max_completion_tokens=1000,
                 temperature=0.3
             )
             
