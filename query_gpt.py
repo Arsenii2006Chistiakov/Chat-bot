@@ -1017,32 +1017,32 @@ class MongoChatbot:
             artist_name = doc.get("artist_name", "N/A")
             genres = ', '.join(doc.get("genres", []))
             
-            charts_info = ""
-            charts = doc.get("charts", {})
-            for country, chart_entries in charts.items():
-                if chart_entries:
-                    latest_entry = chart_entries[0]  # Assuming sorted by timestamp
-                    rank_data = latest_entry.get("rank", {})
-                    # Handle both formats: {"$numberInt": "1"} and direct integer
-                    if isinstance(rank_data, dict) and "$numberInt" in rank_data:
-                        rank = rank_data["$numberInt"]
-                    elif isinstance(rank_data, (int, str)):
-                        rank = str(rank_data)
-                    else:
-                        rank = "N/A"
-                    timestamp = latest_entry.get("timestamp", "N/A")
-                    charts_info += f"  - [bold]{country}:[/bold] Rank {rank} (as of {timestamp})\n"
+            # charts_info = ""
+            # charts = doc.get("charts", {})
+            # for country, chart_entries in charts.items():
+            #     if chart_entries:
+            #         latest_entry = chart_entries[0]  # Assuming sorted by timestamp
+            #         rank_data = latest_entry.get("rank", {})
+            #         # Handle both formats: {"$numberInt": "1"} and direct integer
+            #         if isinstance(rank_data, dict) and "$numberInt" in rank_data:
+            #             rank = rank_data["$numberInt"]
+            #         elif isinstance(rank_data, (int, str)):
+            #             rank = str(rank_data)
+            #         else:
+            #             rank = "N/A"
+            #         timestamp = latest_entry.get("timestamp", "N/A")
+            #         charts_info += f"  - [bold]{country}:[/bold] Rank {rank} (as of {timestamp})\n"
 
             panel_content = (
                 f"[bold blue]Result {i}[/bold blue]\n\n"
                 f"[bold]Song Name:[/bold] {song_name}\n"
                 f"[bold]Artist:[/bold] {artist_name}\n"
                 f"[bold]Genres:[/bold] {genres}\n"
-                f"[bold]First Seen:[/bold] {doc.get('first_seen', 'N/A')}\n"
+                #f"[bold]First Seen:[/bold] {doc.get('first_seen', 'N/A')}\n"
             )
             
-            if charts_info:
-                panel_content += f"\n[bold]Latest Chart Ranks:[/bold]\n{charts_info}"
+            # if charts_info:
+            #     panel_content += f"\n[bold]Latest Chart Ranks:[/bold]\n{charts_info}"
 
             console.print(Panel(
                 panel_content,
@@ -1659,20 +1659,20 @@ Provide only the JSON output. Do not include any other text or explanation.
                 lyrics = result.get("lyrics", "N/A")[:100] + "..." if result.get("lyrics") else "N/A"
                 language = result.get("language_code", "N/A")
                 
-                charts_info = ""
-                charts = result.get("charts", {})
-                for country, chart_entries in charts.items():
-                    if chart_entries:
-                        latest_entry = chart_entries[0]
-                        rank_data = latest_entry.get("rank", {})
-                        if isinstance(rank_data, dict) and "$numberInt" in rank_data:
-                            rank = rank_data["$numberInt"]
-                        elif isinstance(rank_data, (int, str)):
-                            rank = str(rank_data)
-                        else:
-                            rank = "N/A"
-                        timestamp = latest_entry.get("timestamp", "N/A")
-                        charts_info += f"  - [bold]{country}:[/bold] Rank {rank} (as of {timestamp})\n"
+                # charts_info = ""
+                # charts = result.get("charts", {})
+                # for country, chart_entries in charts.items():
+                #     if chart_entries:
+                #         latest_entry = chart_entries[0]
+                #         rank_data = latest_entry.get("rank", {})
+                #         if isinstance(rank_data, dict) and "$numberInt" in rank_data:
+                #             rank = rank_data["$numberInt"]
+                #         elif isinstance(rank_data, (int, str)):
+                #             rank = str(rank_data)
+                #         else:
+                #             rank = "N/A"
+                #         timestamp = latest_entry.get("timestamp", "N/A")
+                #         charts_info += f"  - [bold]{country}:[/bold] Rank {rank} (as of {timestamp})\n"
                 
                 panel_content = (
                     f"[bold blue]Result {i}[/bold blue]\n\n"
@@ -1680,13 +1680,13 @@ Provide only the JSON output. Do not include any other text or explanation.
                     f"[bold]Artist:[/bold] {artist_name}\n"
                     f"[bold]Genres:[/bold] {genres}\n"
                     f"[bold]Language:[/bold] {language}\n"
-                    f"[bold]Similarity Score:[/bold] {music_score:.4f}\n"
-                    f"[bold]First Seen:[/bold] {result.get('first_seen', 'N/A')}\n"
+                    #f"[bold]Similarity Score:[/bold] {music_score:.4f}\n"
+                    #f"[bold]First Seen:[/bold] {result.get('first_seen', 'N/A')}\n"
                     f"[bold]Lyrics Preview:[/bold] {lyrics}\n"
                 )
                 
-                if charts_info:
-                    panel_content += f"\n[bold]Latest Chart Ranks:[/bold]\n{charts_info}"
+                # if charts_info:
+                #     panel_content += f"\n[bold]Latest Chart Ranks:[/bold]\n{charts_info}"
                 
                 console.print(Panel(
                     panel_content,
@@ -1922,39 +1922,39 @@ Provide only the JSON output. Do not include any other text or explanation.
             lyrics = result.get("lyrics", "N/A")[:100] + "..." if result.get("lyrics") else "N/A"
             language = result.get("language_code", "N/A")
             
-            charts_info = ""
-            charts = result.get("charts", {})
-            for country, chart_entries in charts.items():
-                if chart_entries:
-                    latest_entry = chart_entries[0]
-                    rank_data = latest_entry.get("rank", {})
-                    if isinstance(rank_data, dict) and "$numberInt" in rank_data:
-                        rank = rank_data["$numberInt"]
-                    elif isinstance(rank_data, (int, str)):
-                        rank = str(rank_data)
-                    else:
-                        rank = "N/A"
-                    timestamp = latest_entry.get("timestamp", "N/A")
-                    charts_info += f"  - [bold]{country}:[/bold] Rank {rank} (as of {timestamp})\n"
+            # charts_info = ""
+            # charts = result.get("charts", {})
+            # for country, chart_entries in charts.items():
+            #     if chart_entries:
+            #         latest_entry = chart_entries[0]
+            #         rank_data = latest_entry.get("rank", {})
+            #         if isinstance(rank_data, dict) and "$numberInt" in rank_data:
+            #             rank = rank_data["$numberInt"]
+            #         elif isinstance(rank_data, (int, str)):
+            #             rank = str(rank_data)
+            #         else:
+            #             rank = "N/A"
+            #         timestamp = latest_entry.get("timestamp", "N/A")
+            #         charts_info += f"  - [bold]{country}:[/bold] Rank {rank} (as of {timestamp})\n"
             
             panel_content = (
                 f"[bold blue]Result {i}[/bold blue]\n\n"
                 f"[bold]Song Name:[/bold] {song_name}\n"
                 f"[bold]Artist:[/bold] {artist_name}\n"
                 f"[bold]Genres:[/bold] {genres}\n"
-                f"[bold]Language:[/bold] {language}\n"
+                #f"[bold]Language:[/bold] {language}\n"
             )
             
-            if score is not None:
-                panel_content += f"[bold]Similarity Score:[/bold] {score:.4f}\n"
+            # if score is not None:
+            #     panel_content += f"[bold]Similarity Score:[/bold] {score:.4f}\n"
             
             panel_content += (
-                f"[bold]First Seen:[/bold] {result.get('first_seen', 'N/A')}\n"
+                #f"[bold]First Seen:[/bold] {result.get('first_seen', 'N/A')}\n"
                 f"[bold]Lyrics Preview:[/bold] {lyrics}\n"
             )
             
-            if charts_info:
-                panel_content += f"\n[bold]Latest Chart Ranks:[/bold]\n{charts_info}"
+            # if charts_info:
+            #     panel_content += f"\n[bold]Latest Chart Ranks:[/bold]\n{charts_info}"
             
             console.print(Panel(
                 panel_content,

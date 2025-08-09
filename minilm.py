@@ -38,34 +38,23 @@ class LocalSentenceEmbeddings:
 
     def __init__(self):
         """
-        Initialize the embeddings model. Prefer local cache if available; otherwise load by model id.
+        Initialize the embeddings model. Always load from HuggingFace hub,
+        letting SentenceTransformer handle the cache.
         """
         print(f"\n{'='*60}")
         print("MINILM MODEL INITIALIZATION")
         print(f"{'='*60}")
-        
+
         start_time = time.time()
-        
-        if local_model_path is not None:
-            print(f"Loading SentenceTransformer model from local cache: {local_model_path}")
-            try:
-                self.model = SentenceTransformer(local_model_path)
-                print("✅ Successfully loaded from local cache")
-            except Exception as e:
-                print(f"❌ Failed to load from local cache: {e}")
-                print("Falling back to model id...")
-                model_id = "paraphrase-multilingual-MiniLM-L12-v2"
-                print(f"Loading SentenceTransformer model by id: {model_id}")
-                self.model = SentenceTransformer(model_id)
-        else:
-            model_id = "paraphrase-multilingual-MiniLM-L12-v2"
-            print(f"Loading SentenceTransformer model by id: {model_id} (may download if not cached)")
-            try:
-                self.model = SentenceTransformer(model_id)
-                print("✅ Successfully loaded by model id")
-            except Exception as e:
-                print(f"❌ Failed to load by model id: {e}")
-                raise
+
+        model_id = "paraphrase-multilingual-MiniLM-L12-v2"
+        print(f"Loading SentenceTransformer model from HuggingFace hub: {model_id}")
+        try:
+            self.model = SentenceTransformer(model_id)
+            print("✅ Successfully loaded from HuggingFace hub (will use local cache if available)")
+        except Exception as e:
+            print(f"❌ Failed to load model from HuggingFace hub: {e}")
+            raise
 
         self.model.to('cpu')  # Explicitly move to CPU unless user config changes it
 
