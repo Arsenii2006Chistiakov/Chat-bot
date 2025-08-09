@@ -220,9 +220,9 @@ class MERTEmbedder:
         embedding = hidden_states.mean(dim=[0, 1, 2])  # [1024]
         return embedding.cpu()
 
-    def _extract_middle_snippet_local(self, audio_path: str) -> torch.Tensor:
+    def _extract_first_20s_snippet_local(self, audio_path: str) -> torch.Tensor:
         """
-        Extract a snippet from the middle of a local audio file.
+        Extract a snippet from the first 20 seconds of a local audio file.
         
         Args:
             audio_path: Path to the local audio file
