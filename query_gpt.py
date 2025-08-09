@@ -633,7 +633,9 @@ class MongoChatbot:
             self.query_generator = MongoDBQueryGenerator()
             
             # Initialize MERT embedder for audio processing
-            self.mert_embedder = None  # Will be initialized on first use
+            console.print("[blue]Initializing MERT embedder...[/blue]")
+            self.mert_embedder = MERTEmbedder()
+            console.print("[green]✅ MERT embedder initialized successfully[/green]")
             self.current_embedding = None  # Store the current audio embedding
             self.current_transcription_text = None  # Store last transcription text
             
@@ -1052,10 +1054,6 @@ class MongoChatbot:
     async def _handle_load_command(self, file_path: str):
         """Handle the /load command: preprocess, transcribe, and store in memory."""
         try:
-            # Initialize MERT embedder if not already done
-            if self.mert_embedder is None:
-                self.mert_embedder = MERTEmbedder()
-            
             console.print(Panel(
                 f"[bold blue]🎵 Loading Audio[/bold blue]\n\n"
                 f"File: {file_path}\n"
@@ -1475,10 +1473,6 @@ Provide only the JSON output. Do not include any other text or explanation.
                     f"Extracting audio embedding...",
                     title="Audio Processing", border_style="blue"
                 ))
-                
-                # Initialize MERT embedder if not already done
-                if self.mert_embedder is None:
-                    self.mert_embedder = MERTEmbedder()
                 
                 # Extract snippet and waveform
                 waveform, wav_path = self.mert_embedder.extract_snippet_and_waveform(file_path)
