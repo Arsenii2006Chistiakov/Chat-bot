@@ -642,8 +642,28 @@ class MongoChatbot:
                 sample_trends = list(self.trends_collection.find({}).limit(3))
                 for i, trend in enumerate(sample_trends):
                     console.print(f"[blue]Debug: Sample trend {i}: _id={trend.get('_id')}, trend_description={trend.get('trend_description', 'N/A')}[/blue]")
+                    
+                # Debug: Check songs collection for trend_id field
+                songs_with_trend_id = self.collection.count_documents({"trend_id": {"$exists": True, "$ne": None}})
+                console.print(f"[blue]Debug: Found {songs_with_trend_id} songs with trend_id field[/blue]")
+                
+                # Sample a few song documents to check their structure
+                sample_songs = list(self.collection.find({"TREND_STATUS": "PROCESSED"}).limit(3))
+                for i, song in enumerate(sample_songs):
+                    console.print(f"[blue]Debug: Sample processed song {i}: song_name={song.get('song_name', 'N/A')}, trend_id={song.get('trend_id')}, TREND_STATUS={song.get('TREND_STATUS')}[/blue]")
+                    console.print(f"[blue]Debug: Song fields: {list(song.keys())}[/blue]")
+                
+                # If no songs have trend_id, let's see if we can use a default trend for all PROCESSED songs
+                if songs_with_trend_id == 0 and trend_count > 0:
+                    console.print(f"[yellow]Warning: No songs have trend_id field, but trends exist. Consider using a default trend or updating the data model.[/yellow]")
+                    
+                    # Get the first trend as a potential default
+                    first_trend = self.trends_collection.find_one({})
+                    if first_trend:
+                        console.print(f"[blue]Debug: Could use default trend: _id={first_trend.get('_id')}, description={first_trend.get('trend_description')}[/blue]")
+                    
             except Exception as e:
-                console.print(f"[red]Debug: Error accessing trends collection: {e}[/red]")
+                console.print(f"[red]Debug: Error accessing collections: {e}[/red]")
             
             # Initialize MERT embedder for audio processing
             #console.print("[blue]Initializing MERT embedder...[/blue]")
@@ -1902,7 +1922,7 @@ Provide only the JSON output. Do not include any other text or explanation.
             pipeline.append({"$match": complex_filters})
             console.print(f"[blue]Post-vector match filters: {complex_filters}[/blue]")
         
-        # Add lookup for trend descriptions
+        # Add lookup for trend descriptions - with fallback for missing trend_id
         pipeline.extend([
             {
                 "$lookup": {
@@ -1912,11 +1932,40 @@ Provide only the JSON output. Do not include any other text or explanation.
                     "as": "trend_info"
                 }
             },
+            # Debug: Add a stage to check lookup results
+            {
+                "$addFields": {
+                    "debug_lookup_count": {"$size": "$trend_info"},
+                    "debug_trend_id": "$trend_id"
+                }
+            },
+            # Add fallback lookup for all PROCESSED songs without trend_id
+            {
+                "$lookup": {
+                    "from": "TOP_TIKTOK_TRENDS",
+                    "pipeline": [{"$limit": 1}],  # Get the first trend as default
+                    "as": "default_trend_info"
+                }
+            },
             {"$project": {
                 "_id": 1, "song_id": 1, "song_name": 1, "artist_name": 1,
                 "lyrics": 1, "genres": 1, "score": 1, "first_seen": 1,
                 "charts": 1, "language_code": 1, "audio_metadata": 1,
-                "TREND_STATUS": 1, "trend_description": {"$arrayElemAt": ["$trend_info.trend_description", 0]}
+                "TREND_STATUS": 1, 
+                "trend_description": {
+                    "$cond": {
+                        "if": {"$gt": [{"$size": "$trend_info"}, 0]},
+                        "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
+                        "else": {
+                            "$cond": {
+                                "if": {"$eq": ["$TREND_STATUS", "PROCESSED"]},
+                                "then": {"$arrayElemAt": ["$default_trend_info.trend_description", 0]},
+                                "else": null
+                            }
+                        }
+                    }
+                },
+                "debug_lookup_count": 1, "debug_trend_id": 1
             }},
             {"$sort": {"score": -1}},
             {"$limit": limit}
@@ -1931,7 +1980,11 @@ Provide only the JSON output. Do not include any other text or explanation.
             trend_status = result.get("TREND_STATUS")
             trend_desc = result.get("trend_description")
             trend_id = result.get("trend_id")
-            console.print(f"[yellow]Debug Result {i}: TREND_STATUS={trend_status}, trend_id={trend_id}, trend_description={trend_desc}[/yellow]")
+            debug_lookup_count = result.get("debug_lookup_count")
+            debug_trend_id = result.get("debug_trend_id")
+            song_name = result.get("song_name", "Unknown")
+            console.print(f"[yellow]Debug Result {i} ({song_name}): TREND_STATUS={trend_status}, trend_id={trend_id}, trend_description={trend_desc}[/yellow]")
+            console.print(f"[yellow]Debug Lookup: debug_trend_id={debug_trend_id}, lookup_count={debug_lookup_count}[/yellow]")
         
         # Check if we got any results after filtering
         if not results:
