@@ -608,7 +608,7 @@ Provide only the JSON output. Do not include any other text or explanation.
             return text
             
         except Exception as e:
-            console.print(f"[red]Debug - OpenAI API call failed: {e}[/red]")
+            console.print(f"[red]OpenAI API call failed: {e}[/red]")
             return "{}"
 
 class MongoChatbot:
@@ -633,37 +633,7 @@ class MongoChatbot:
             self.trends_collection=self.db.TOP_TIKTOK_TRENDS
             self.query_generator = MongoDBQueryGenerator()
             
-            # Debug: Check trends collection
-            try:
-                trend_count = self.trends_collection.count_documents({})
-                console.print(f"[blue]Debug: Found {trend_count} documents in TOP_TIKTOK_TRENDS collection[/blue]")
-                
-                # Sample a few trend documents
-                sample_trends = list(self.trends_collection.find({}).limit(3))
-                for i, trend in enumerate(sample_trends):
-                    console.print(f"[blue]Debug: Sample trend {i}: _id={trend.get('_id')}, trend_description={trend.get('trend_description', 'N/A')}[/blue]")
-                    
-                # Debug: Check songs collection for trend_id field
-                songs_with_trend_id = self.collection.count_documents({"trend_id": {"$exists": True, "$ne": None}})
-                console.print(f"[blue]Debug: Found {songs_with_trend_id} songs with trend_id field[/blue]")
-                
-                # Sample a few song documents to check their structure
-                sample_songs = list(self.collection.find({"TREND_STATUS": "PROCESSED"}).limit(3))
-                for i, song in enumerate(sample_songs):
-                    console.print(f"[blue]Debug: Sample processed song {i}: song_name={song.get('song_name', 'N/A')}, trend_id={song.get('trend_id')}, TREND_STATUS={song.get('TREND_STATUS')}[/blue]")
-                    console.print(f"[blue]Debug: Song fields: {list(song.keys())}[/blue]")
-                
-                # If no songs have trend_id, let's see if we can use a default trend for all PROCESSED songs
-                if songs_with_trend_id == 0 and trend_count > 0:
-                    console.print(f"[yellow]Warning: No songs have trend_id field, but trends exist. Consider using a default trend or updating the data model.[/yellow]")
-                    
-                    # Get the first trend as a potential default
-                    first_trend = self.trends_collection.find_one({})
-                    if first_trend:
-                        console.print(f"[blue]Debug: Could use default trend: _id={first_trend.get('_id')}, description={first_trend.get('trend_description')}[/blue]")
-                    
-            except Exception as e:
-                console.print(f"[red]Debug: Error accessing collections: {e}[/red]")
+
             
             # Initialize MERT embedder for audio processing
             #console.print("[blue]Initializing MERT embedder...[/blue]")
@@ -1071,14 +1041,10 @@ class MongoChatbot:
             # Add trend description if available
             trend_description = doc.get("trend_description")
             trend_status = doc.get("TREND_STATUS")
-            console.print(f"[yellow]Debug Format Results: Song '{song_name}' - TREND_STATUS={trend_status}, trend_description={trend_description}[/yellow]")
             
             trend_info = ""
             if trend_description and trend_status == "PROCESSED":
                 trend_info = f"[bold]Trend:[/bold] {trend_description}\n"
-                console.print(f"[green]Debug Format Results: Added trend info to display[/green]")
-            else:
-                console.print(f"[yellow]Debug Format Results: No trend info added - status={trend_status}, desc_exists={bool(trend_description)}[/yellow]")
             
             panel_content = (
                 f"[bold blue]Result {i}[/bold blue]\n\n"
@@ -1403,12 +1369,8 @@ Provide only the JSON output. Do not include any other text or explanation.
         has_music_embedding = hasattr(self, 'current_embedding') and self.current_embedding is not None
         has_text_embedding = hasattr(self, 'current_text_embedding') and self.current_text_embedding is not None
         
-        # Debug: Show embedding availability
-        console.print(f"[blue]Debug: Embedding availability - Music: {has_music_embedding}, Text: {has_text_embedding}[/blue]")
-        
         # If no embeddings are available, skip LLM decision and return filter-only search
         if not has_music_embedding and not has_text_embedding:
-            console.print(f"[yellow]Debug: No embeddings available, defaulting to filter-only search[/yellow]")
             return {
                 "use_music_embedding": False,
                 "use_text_embedding": False,
@@ -1720,14 +1682,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 
             results = list(self.collection.aggregate(pipeline))
             
-            # Debug: Check trend data in handle search command results
-            console.print(f"[yellow]Debug Handle Search Command: Got {len(results)} results[/yellow]")
-            for i, result in enumerate(results[:3]):  # Check first 3 results
-                trend_status = result.get("TREND_STATUS")
-                trend_desc = result.get("trend_description")
-                trend_id = result.get("trend_id")
-                song_name = result.get("song_name", "Unknown")
-                console.print(f"[yellow]Debug Handle Search Result {i} ({song_name}): TREND_STATUS={trend_status}, trend_id={trend_id}, trend_description={trend_desc}[/yellow]")
+
             
             if not results:
                 console.print(Panel(
@@ -1769,14 +1724,10 @@ Provide only the JSON output. Do not include any other text or explanation.
                 # Add trend description if available
                 trend_description = result.get("trend_description")
                 trend_status = result.get("TREND_STATUS")
-                console.print(f"[yellow]Debug Handle Search: Song '{song_name}' - TREND_STATUS={trend_status}, trend_description={trend_description}[/yellow]")
                 
                 trend_info = ""
                 if trend_description and trend_status == "PROCESSED":
                     trend_info = f"[bold]Trend:[/bold] {trend_description}\n"
-                    console.print(f"[green]Debug Handle Search: Added trend info to display[/green]")
-                else:
-                    console.print(f"[yellow]Debug Handle Search: No trend info added - status={trend_status}, desc_exists={bool(trend_description)}[/yellow]")
                 
                 panel_content = (
                     f"[bold blue]Result {i}[/bold blue]\n\n"
@@ -1971,16 +1922,7 @@ Provide only the JSON output. Do not include any other text or explanation.
             {"$limit": limit}
         ])
         
-        console.print(f"[blue]Final pipeline: {pipeline}[/blue]")
         results = list(self.collection.aggregate(pipeline))
-        
-        # Debug: Check trend data in results
-        console.print(f"[yellow]Debug: Got {len(results)} results from vector search[/yellow]")
-        for i, result in enumerate(results[:3]):  # Check first 3 results
-            trend_status = result.get("TREND_STATUS")
-            trend_desc = result.get("trend_description")
-            song_name = result.get("song_name", "Unknown")
-            console.print(f"[yellow]Debug Result {i} ({song_name}): TREND_STATUS={trend_status}, trend_description='{trend_desc}'[/yellow]")
         
         # Check if we got any results after filtering
         if not results:
@@ -2029,14 +1971,6 @@ Provide only the JSON output. Do not include any other text or explanation.
         ]
         
         results = list(self.collection.aggregate(pipeline))
-        
-        # Debug: Check trend data in filter search results
-        console.print(f"[yellow]Debug Filter Search: Got {len(results)} results[/yellow]")
-        for i, result in enumerate(results[:3]):  # Check first 3 results
-            trend_status = result.get("TREND_STATUS")
-            trend_desc = result.get("trend_description")
-            song_name = result.get("song_name", "Unknown")
-            console.print(f"[yellow]Debug Filter Result {i} ({song_name}): TREND_STATUS={trend_status}, trend_description='{trend_desc}'[/yellow]")
         
         self._display_search_results(results, description, "filter")
         return results
@@ -2102,13 +2036,9 @@ Provide only the JSON output. Do not include any other text or explanation.
             # Add trend description if available
             trend_description = result.get("trend_description")
             trend_status = result.get("TREND_STATUS")
-            console.print(f"[yellow]Debug Display: Song '{song_name}' - TREND_STATUS={trend_status}, trend_description='{trend_description}'[/yellow]")
             
             if trend_description and trend_status == "PROCESSED":
                 panel_content += f"[bold]Trend:[/bold] {trend_description}\n"
-                console.print(f"[green]Debug: Added trend description to display[/green]")
-            else:
-                console.print(f"[yellow]Debug: No trend description added - status={trend_status}, desc_exists={bool(trend_description)}[/yellow]")
             
             panel_content += (
                 #f"[bold]First Seen:[/bold] {result.get('first_seen', 'N/A')}\n"
