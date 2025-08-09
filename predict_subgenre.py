@@ -263,14 +263,21 @@ class SubgenrePredictor:
                 # Apply sigmoid to get probabilities
                 probabilities = torch.sigmoid(logits)
                 
-                # Get the top-1 predicted subgenre (highest probability)
-                top_index = torch.argmax(probabilities, dim=1)[0]
-                predicted_subgenre = self.genre_labels[top_index]
-                confidence = probabilities[0][top_index].item()
-                
-                console.print(f"[green]✅ Prediction: {predicted_subgenre} (confidence: {confidence:.4f})[/green]")
-                
-                return predicted_subgenre
+                # Get the top-3 predicted subgenres (highest probabilities)
+                topk = min(3, probabilities.shape[1])
+                top_probs, top_indices = torch.topk(probabilities, k=topk, dim=1)
+                results = []
+                for i in range(topk):
+                    idx = top_indices[0][i].item()
+                    label = self.genre_labels[idx]
+                    conf = top_probs[0][i].item()
+                    results.append((label, conf))
+                # Print the top 3 results
+                console.print("[green]Top 3 predicted subgenres:[/green]")
+                for i, (label, conf) in enumerate(results, 1):
+                    console.print(f"  {i}. {label} (confidence: {conf:.4f})")
+                # Return the list of top 3 (label, confidence) tuples
+                return results
                 
         except Exception as e:
             console.print(Panel(
