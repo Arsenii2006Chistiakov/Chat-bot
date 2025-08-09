@@ -1403,6 +1403,19 @@ Provide only the JSON output. Do not include any other text or explanation.
         has_music_embedding = hasattr(self, 'current_embedding') and self.current_embedding is not None
         has_text_embedding = hasattr(self, 'current_text_embedding') and self.current_text_embedding is not None
         
+        # Debug: Show embedding availability
+        console.print(f"[blue]Debug: Embedding availability - Music: {has_music_embedding}, Text: {has_text_embedding}[/blue]")
+        
+        # If no embeddings are available, skip LLM decision and return filter-only search
+        if not has_music_embedding and not has_text_embedding:
+            console.print(f"[yellow]Debug: No embeddings available, defaulting to filter-only search[/yellow]")
+            return {
+                "use_music_embedding": False,
+                "use_text_embedding": False,
+                "search_type": "filter_only",
+                "reasoning": "No embeddings available, using filter-only search"
+            }
+        
         embedding_status = {
             "music_embedding": has_music_embedding,
             "text_embedding": has_text_embedding
