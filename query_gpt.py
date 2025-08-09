@@ -956,6 +956,81 @@ class MongoChatbot:
         except Exception as e:
             console.print(f"[red]Error adding song to context: {e}[/red]")
 
+    async def _handle_analysis_query(self, user_input: str) -> str:
+        """Handle deep analysis queries using o3-mini reasoning model with context data."""
+        try:
+            # Check if we have context songs to analyze
+            if not hasattr(self, 'context_songs') or not self.context_songs:
+                return "I don't have any songs in context to analyze. Please search for songs and use /add <index> to add them to context first."
+            
+            # Build context from stored songs
+            context_parts = []
+            context_parts.append("CONTEXT INFORMATION:")
+            
+            for i, song in enumerate(self.context_songs, 1):
+                context_parts.append(f"\nSONG {i}:")
+                context_parts.append(f"Title: {song.get('song_name', 'N/A')}")
+                context_parts.append(f"Artist: {song.get('artist_name', 'N/A')}")
+                
+                if song.get('genres'):
+                    context_parts.append(f"Genres: {', '.join(song['genres'])}")
+                
+                if song.get('trend_description'):
+                    context_parts.append(f"Trend: {song['trend_description']}")
+                
+                if song.get('detailed_description'):
+                    context_parts.append(f"Detailed Description: {song['detailed_description']}")
+                
+                if song.get('trend_explanation'):
+                    context_parts.append(f"Trend Explanation: {song['trend_explanation']}")
+                
+                if song.get('lyrics'):
+                    # Truncate lyrics for context
+                    lyrics_preview = song['lyrics'][:500] + "..." if len(song['lyrics']) > 500 else song['lyrics']
+                    context_parts.append(f"Lyrics Preview: {lyrics_preview}")
+            
+            context_data = "\n".join(context_parts)
+            
+            # Build the analysis prompt
+            analysis_prompt = f"""
+You are an expert music analyst and cultural researcher. Use the provided context information to give a deep, insightful analysis.
+
+{context_data}
+
+USER QUESTION: {user_input}
+
+Please provide a comprehensive analysis that:
+1. Uses the specific context information provided above
+2. Explains cultural, social, and musical factors
+3. Provides reasoning backed by the data
+4. Connects trends to broader cultural phenomena
+5. Offers insights into why certain patterns emerged
+
+Be specific, detailed, and use the context data to support your analysis.
+"""
+            
+            import openai
+            
+            # Initialize OpenAI client
+            client = openai.OpenAI(api_key=self.query_generator.api_key)
+            
+            # Use o3-mini for deep reasoning
+            response = client.chat.completions.create(
+                model="o3-mini",
+                messages=[
+                    {"role": "system", "content": "You are an expert music analyst and cultural researcher. Provide deep, insightful analysis using the context data provided."},
+                    {"role": "user", "content": analysis_prompt}
+                ],
+                max_tokens=1000,
+                temperature=0.3
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            console.print(f"[red]Error in analysis: {e}[/red]")
+            return "I encountered an error while performing the analysis. Please try again."
+
     def _predict_genres(self, music_embedding: torch.Tensor, text_embedding: Optional[torch.Tensor] = None) -> List[str]:
         """
         Predict genres using concatenated music and text embeddings.
@@ -1225,29 +1300,32 @@ class MongoChatbot:
 
     async def _categorize_input(self, user_input: str) -> str:
         """
-        Categorize user input into one of three categories using GPT-3.5.
+        Categorize user input into one of four categories using GPT-3.5.
         
         Args:
             user_input (str): The user's input message
             
         Returns:
-            str: Category - "help", "talk", or "search"
+            str: Category - "help", "talk", "search", or "analysis"
         """
         prompt = f"""
-You are an input categorizer for a music database chatbot. Categorize the user's input into exactly one of these three categories:
+You are an input categorizer for a music database chatbot. Categorize the user's input into exactly one of these four categories:
 
 1. "help" - User is asking for help, instructions, or wants to know what the system can do
    Examples: "help", "what can you do", "how does this work", "show me the commands"
 
 2. "talk" - User is making casual conversation, greetings, or general chat
-   Examples: "hello", "how are you", "thanks", "goodbye", "nice to meet you","let's just talk about tendencies in music","what do you know about most famous artists"
+   Examples: "hello", "how are you", "thanks", "goodbye", "nice to meet you"
 
 3. "search" - User wants to search the database with natural language queries or find similar songs/lyrics
    Examples: "find songs by artist X", "show me Latin songs", "songs from Brazil", "popular songs", "find similar songs", "match this song", "what songs are like this", "find similar lyrics"
 
+4. "analysis" - User wants deep analysis, explanations, or reasoning about trends, songs, genres, or cultural phenomena
+   Examples: "explain why this trend took off in Germany", "tell me more about this song and genre", "why did this become popular", "analyze the cultural impact", "what makes this genre unique", "explain the trend phenomenon"
+
 User input: "{user_input}"
 
-Respond with ONLY the category name: help, talk, or search
+Respond with ONLY the category name: help, talk, search, or analysis
 """
         
         import openai
@@ -1260,7 +1338,7 @@ Respond with ONLY the category name: help, talk, or search
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are a simple categorizer. Respond with only one word: help, talk, or search."},
+                    {"role": "system", "content": "You are a simple categorizer. Respond with only one word: help, talk, search, or analysis."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=10,
@@ -2150,7 +2228,9 @@ Provide only the JSON output. Do not include any other text or explanation.
             "• Show me songs by Ponte Perro that charted in Argentina.\n"
             "• List all Latin songs with Spanish lyrics.\n"
             "• Find songs longer than 3 minutes with high language probability.\n"
-            "• Find similar songs (uses loaded audio/lyrics embeddings)\n\n"
+            "• Find similar songs (uses loaded audio/lyrics embeddings)\n"
+            "• Explain why this trend took off in Germany (analysis)\n"
+            "• Tell me more about this song and genre (analysis)\n\n"
             "[bold green]Special Commands:[/bold green]\n"
             "• /load local/path/to/file - Preprocess an audio file with MERT\n"
             "• /loadtext --text 'lyrics here' [--lang eng] [--song_id XYZ] - Embed lyrics text and optionally save to DB\n"
@@ -2164,6 +2244,8 @@ Provide only the JSON output. Do not include any other text or explanation.
             "• /clear - Clear conversation history\n\n"
             "[bold magenta]Context Commands:[/bold magenta]\n"
             "• /add <index> - Add search result to context (e.g., /add 1)\n\n"
+            "[bold purple]Analysis Workflow:[/bold purple]\n"
+            "1. Search for songs → 2. /add results to context → 3. Ask analysis questions\n\n"
             "[yellow]Type 'quit' or 'exit' to end the session.[/yellow]",
             title="Welcome", border_style="blue"
         ))
@@ -2286,6 +2368,19 @@ Provide only the JSON output. Do not include any other text or explanation.
                     # Add search to chat history
                     search_summary = f"Found {len(search_results) if search_results else 0} results for: {search_params.get('description', 'music search')}"
                     self._add_to_chat_history(user_input, search_summary, "search")
+                
+                elif category == "analysis":
+                    # Deep analysis using o3-mini reasoning model
+                    with console.status("[bold purple]Performing deep analysis...[/bold purple]", spinner="dots"):
+                        analysis_response = await self._handle_analysis_query(user_input)
+                    
+                    console.print(Panel(
+                        f"[bold purple]🧠 Deep Analysis[/bold purple]\n\n{analysis_response}",
+                        title="Analysis Results", border_style="purple"
+                    ))
+                    
+                    # Add to chat history
+                    self._add_to_chat_history(user_input, analysis_response, "analysis")
             
             except Exception as e:
                 console.print(f"[red]An unexpected error occurred: {e}[/red]")
