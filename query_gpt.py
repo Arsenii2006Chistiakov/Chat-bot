@@ -1669,7 +1669,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                                 "$cond": {
                                     "if": {"$eq": ["$TREND_STATUS", "PROCESSED"]},
                                     "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
-                                    "else": null
+                                    "else": None
                                 }
                             }
                         }
@@ -1963,7 +1963,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                     "$cond": {
                         "if": {"$eq": ["$TREND_STATUS", "PROCESSED"]},
                         "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
-                        "else": null
+                        "else": None
                     }
                 }
             }},
