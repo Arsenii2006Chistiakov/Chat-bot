@@ -9,21 +9,21 @@ class MultilingualSentenceEmbeddings:
     
     def __init__(self):
         """Initialize the embeddings model"""
-        print(f"\n{'='*50}")
-        print("MULTILINGUAL SENTENCE EMBEDDINGS INITIALIZATION")
-        print(f"{'='*50}")
+        # print(f"\n{'='*50}")
+        # print("MULTILINGUAL SENTENCE EMBEDDINGS INITIALIZATION")
+        # print(f"{'='*50}")
         
         try:
-            print("Creating LocalSentenceEmbeddings instance...")
+            #print("Creating LocalSentenceEmbeddings instance...")
             self.model = LocalSentenceEmbeddings()
-            print("✅ LocalSentenceEmbeddings created successfully")
+            #print("✅ LocalSentenceEmbeddings created successfully")
         except Exception as e:
             print(f"❌ Error creating LocalSentenceEmbeddings: {e}")
             raise
             
-        print(f"{'='*50}")
-        print("MULTILINGUAL SENTENCE EMBEDDINGS INITIALIZATION COMPLETE")
-        print(f"{'='*50}\n")
+        # print(f"{'='*50}")
+        # print("MULTILINGUAL SENTENCE EMBEDDINGS INITIALIZATION COMPLETE")
+        # print(f"{'='*50}\n")
     
     def get_embedding(self, text: str) -> np.ndarray:
         """
