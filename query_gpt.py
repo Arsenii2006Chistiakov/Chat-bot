@@ -1345,7 +1345,7 @@ Respond with ONLY the category name: help, talk, search, or analysis
         try:
             # Make API call to OpenAI with cheaper model
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4.1-nano",
                 messages=[
                     {"role": "system", "content": "You are a simple categorizer. Respond with only one word: help, talk, search, or analysis."},
                     {"role": "user", "content": prompt}
