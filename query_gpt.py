@@ -952,8 +952,11 @@ class MongoChatbot:
     async def _handle_analysis_query(self, user_input: str) -> str:
         """Handle deep analysis queries using o3-mini reasoning model with context data."""
         try:
+            console.print(f"[blue]Debug Analysis Handler: Called with input '{user_input}'[/blue]")
+            
             # Check if we have context songs to analyze
             if not hasattr(self, 'context_songs') or not self.context_songs:
+                console.print("[blue]Debug Analysis Handler: No context songs found[/blue]")
                 return """I don't have any songs in context to analyze yet. To perform deep analysis, please:
 
 1. Search for songs related to your question (e.g., "find songs with trends in Sweden")
@@ -966,6 +969,8 @@ For example:
 • Analyze: "explain why this trend became popular in Sweden"
 
 Would you like me to help you search for relevant songs first?"""
+            
+            console.print(f"[blue]Debug Analysis Handler: Found {len(self.context_songs)} context songs[/blue]")
             
             # Build context from stored songs
             context_parts = []
@@ -1345,7 +1350,7 @@ Respond with ONLY the category name: help, talk, search, or analysis
         try:
             # Make API call to OpenAI with cheaper model
             response = client.chat.completions.create(
-                model="gpt-4.1-nano",
+                model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": "You are a simple categorizer. Respond with only one word: help, talk, search, or analysis."},
                     {"role": "user", "content": prompt}
@@ -1355,10 +1360,15 @@ Respond with ONLY the category name: help, talk, search, or analysis
             )
             
             # Extract the response text and clean it
-            category = response.choices[0].message.content.strip().lower()
+            raw_response = response.choices[0].message.content.strip()
+            category = raw_response.lower()
+            
+            # Debug: Print raw orchestrator response
+            console.print(f"[blue]Debug Orchestrator Raw Response: '{raw_response}'[/blue]")
             
             # Ensure it's one of the valid categories
-            if category not in ["help", "talk", "search"]:
+            if category not in ["help", "talk", "search", "analysis"]:
+                console.print(f"[yellow]Warning: Invalid category '{category}' returned, defaulting to 'talk'[/yellow]")
                 category = "talk"  # Default fallback
                 
             return category
@@ -2379,9 +2389,12 @@ Provide only the JSON output. Do not include any other text or explanation.
                     self._add_to_chat_history(user_input, search_summary, "search")
                 
                 elif category == "analysis":
+                    console.print("[blue]Debug: Analysis category detected, calling analysis handler[/blue]")
                     # Deep analysis using o3-mini reasoning model
                     with console.status("[bold purple]Performing deep analysis...[/bold purple]", spinner="dots"):
                         analysis_response = await self._handle_analysis_query(user_input)
+                    
+                    console.print(f"[blue]Debug: Analysis response received: {len(analysis_response)} characters[/blue]")
                     
                     console.print(Panel(
                         f"[bold purple]🧠 Deep Analysis[/bold purple]\n\n{analysis_response}",
