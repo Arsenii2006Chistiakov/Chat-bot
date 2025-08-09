@@ -1647,8 +1647,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                     {
                         "$lookup": {
                             "from": "TOP_TIKTOK_TRENDS",
-                            "localField": "trend_id",
-                            "foreignField": "_id",
+                            "pipeline": [{"$limit": 1}],  # Get the first (and likely only) trend
                             "as": "trend_info"
                         }
                     },
@@ -1666,7 +1665,13 @@ Provide only the JSON output. Do not include any other text or explanation.
                             "language_code": 1,
                             "audio_metadata": 1,
                             "TREND_STATUS": 1,
-                            "trend_description": {"$arrayElemAt": ["$trend_info.trend_description", 0]}
+                            "trend_description": {
+                                "$cond": {
+                                    "if": {"$eq": ["$TREND_STATUS", "PROCESSED"]},
+                                    "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
+                                    "else": null
+                                }
+                            }
                         }
                     },
                     {
@@ -1682,8 +1687,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                     {
                         "$lookup": {
                             "from": "TOP_TIKTOK_TRENDS",
-                            "localField": "trend_id",
-                            "foreignField": "_id",
+                            "pipeline": [{"$limit": 1}],  # Get the first (and likely only) trend
                             "as": "trend_info"
                         }
                     },
@@ -1700,7 +1704,13 @@ Provide only the JSON output. Do not include any other text or explanation.
                             "language_code": 1,
                             "audio_metadata": 1,
                             "TREND_STATUS": 1,
-                            "trend_description": {"$arrayElemAt": ["$trend_info.trend_description", 0]}
+                            "trend_description": {
+                                "$cond": {
+                                    "if": {"$eq": ["$TREND_STATUS", "PROCESSED"]},
+                                    "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
+                                    "else": None
+                                }
+                            }
                         }
                     },
                     {
@@ -1935,29 +1945,13 @@ Provide only the JSON output. Do not include any other text or explanation.
             pipeline.append({"$match": complex_filters})
             console.print(f"[blue]Post-vector match filters: {complex_filters}[/blue]")
         
-        # Add lookup for trend descriptions - with fallback for missing trend_id
+        # Simple lookup to get trend description for all PROCESSED songs
         pipeline.extend([
             {
                 "$lookup": {
                     "from": "TOP_TIKTOK_TRENDS",
-                    "localField": "trend_id",
-                    "foreignField": "_id",
+                    "pipeline": [{"$limit": 1}],  # Get the first (and likely only) trend
                     "as": "trend_info"
-                }
-            },
-            # Debug: Add a stage to check lookup results
-            {
-                "$addFields": {
-                    "debug_lookup_count": {"$size": "$trend_info"},
-                    "debug_trend_id": "$trend_id"
-                }
-            },
-            # Add fallback lookup for all PROCESSED songs without trend_id
-            {
-                "$lookup": {
-                    "from": "TOP_TIKTOK_TRENDS",
-                    "pipeline": [{"$limit": 1}],  # Get the first trend as default
-                    "as": "default_trend_info"
                 }
             },
             {"$project": {
@@ -1967,18 +1961,11 @@ Provide only the JSON output. Do not include any other text or explanation.
                 "TREND_STATUS": 1, 
                 "trend_description": {
                     "$cond": {
-                        "if": {"$gt": [{"$size": "$trend_info"}, 0]},
+                        "if": {"$eq": ["$TREND_STATUS", "PROCESSED"]},
                         "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
-                        "else": {
-                            "$cond": {
-                                "if": {"$eq": ["$TREND_STATUS", "PROCESSED"]},
-                                "then": {"$arrayElemAt": ["$default_trend_info.trend_description", 0]},
-                                "else": null
-                            }
-                        }
+                        "else": null
                     }
-                },
-                "debug_lookup_count": 1, "debug_trend_id": 1
+                }
             }},
             {"$sort": {"score": -1}},
             {"$limit": limit}
@@ -1992,12 +1979,8 @@ Provide only the JSON output. Do not include any other text or explanation.
         for i, result in enumerate(results[:3]):  # Check first 3 results
             trend_status = result.get("TREND_STATUS")
             trend_desc = result.get("trend_description")
-            trend_id = result.get("trend_id")
-            debug_lookup_count = result.get("debug_lookup_count")
-            debug_trend_id = result.get("debug_trend_id")
             song_name = result.get("song_name", "Unknown")
-            console.print(f"[yellow]Debug Result {i} ({song_name}): TREND_STATUS={trend_status}, trend_id={trend_id}, trend_description={trend_desc}[/yellow]")
-            console.print(f"[yellow]Debug Lookup: debug_trend_id={debug_trend_id}, lookup_count={debug_lookup_count}[/yellow]")
+            console.print(f"[yellow]Debug Result {i} ({song_name}): TREND_STATUS={trend_status}, trend_description='{trend_desc}'[/yellow]")
         
         # Check if we got any results after filtering
         if not results:
@@ -2026,8 +2009,7 @@ Provide only the JSON output. Do not include any other text or explanation.
             {
                 "$lookup": {
                     "from": "TOP_TIKTOK_TRENDS",
-                    "localField": "trend_id",
-                    "foreignField": "_id",
+                    "pipeline": [{"$limit": 1}],  # Get the first (and likely only) trend
                     "as": "trend_info"
                 }
             },
@@ -2035,7 +2017,13 @@ Provide only the JSON output. Do not include any other text or explanation.
                 "_id": 1, "song_id": 1, "song_name": 1, "artist_name": 1,
                 "lyrics": 1, "genres": 1, "first_seen": 1, "charts": 1,
                 "language_code": 1, "audio_metadata": 1, "TREND_STATUS": 1,
-                "trend_description": {"$arrayElemAt": ["$trend_info.trend_description", 0]}
+                "trend_description": {
+                    "$cond": {
+                        "if": {"$eq": ["$TREND_STATUS", "PROCESSED"]},
+                        "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
+                        "else": null
+                    }
+                }
             }},
             {"$limit": limit}
         ]
@@ -2047,8 +2035,8 @@ Provide only the JSON output. Do not include any other text or explanation.
         for i, result in enumerate(results[:3]):  # Check first 3 results
             trend_status = result.get("TREND_STATUS")
             trend_desc = result.get("trend_description")
-            trend_id = result.get("trend_id")
-            console.print(f"[yellow]Debug Filter Result {i}: TREND_STATUS={trend_status}, trend_id={trend_id}, trend_description={trend_desc}[/yellow]")
+            song_name = result.get("song_name", "Unknown")
+            console.print(f"[yellow]Debug Filter Result {i} ({song_name}): TREND_STATUS={trend_status}, trend_description='{trend_desc}'[/yellow]")
         
         self._display_search_results(results, description, "filter")
         return results
@@ -2114,7 +2102,7 @@ Provide only the JSON output. Do not include any other text or explanation.
             # Add trend description if available
             trend_description = result.get("trend_description")
             trend_status = result.get("TREND_STATUS")
-            console.print(f"[yellow]Debug Display: Song '{song_name}' - TREND_STATUS={trend_status}, trend_description={trend_description}[/yellow]")
+            console.print(f"[yellow]Debug Display: Song '{song_name}' - TREND_STATUS={trend_status}, trend_description='{trend_description}'[/yellow]")
             
             if trend_description and trend_status == "PROCESSED":
                 panel_content += f"[bold]Trend:[/bold] {trend_description}\n"
