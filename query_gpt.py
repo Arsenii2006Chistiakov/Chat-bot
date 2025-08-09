@@ -495,20 +495,31 @@ class MongoDBQueryGenerator:
             ))
             sys.exit(1)
             
-    async def get_query_from_llm(self, natural_language_query: str, collection_schema: Dict[str, Any]) -> str:
+    async def get_query_from_llm(self, natural_language_query: str, collection_schema: Dict[str, Any], chat_history_context: str = "") -> str:
         """
         Sends the user's query and the schema to an LLM to get a structured MongoDB query.
         
         Args:
             natural_language_query (str): The user's question.
             collection_schema (Dict[str, Any]): A JSON-like representation of the collection schema.
+            chat_history_context (str): Previous conversation context for better understanding.
             
         Returns:
             str: A JSON string of the MongoDB query.
         """
+        # Build the context section
+        context_section = ""
+        if chat_history_context.strip():
+            context_section = f"""
+CONVERSATION CONTEXT:
+{chat_history_context}
+
+---
+"""
+
         prompt = f"""
 You are an expert at converting natural language questions into structured MongoDB queries.
-You will be provided with an example document from the collection and a user's question.
+You will be provided with an example document from the collection, conversation context, and a user's question.
 Your task is to generate a JSON object that can be used directly in a PyMongo find() operation.
 The JSON object should have the following keys:
 - "filter": A MongoDB query filter (e.g., {{ "artist": "Capone" }}).
@@ -516,6 +527,7 @@ The JSON object should have the following keys:
 - "sort": A MongoDB sort object (e.g., {{ "views": -1 }}).
 - "limit": An integer limit for the number of results.
 
+{context_section}
         Here is an example document from the collection:
         {json.dumps(self.example_doc, indent=2)}
 
@@ -624,6 +636,10 @@ class MongoChatbot:
             self.mert_embedder = None  # Will be initialized on first use
             self.current_embedding = None  # Store the current audio embedding
             self.current_transcription_text = None  # Store last transcription text
+            
+            # Initialize chat history
+            self.chat_history = []  # Store conversation history as list of dicts
+            self.max_history_length = 10  # Maximum number of exchanges to keep
             
             # Initialize genre classification model
             self.genre_model = None
@@ -774,6 +790,87 @@ class MongoChatbot:
             ))
             return False
 
+    def _add_to_chat_history(self, user_message: str, assistant_response: str, category: str = "general"):
+        """
+        Add an exchange to the chat history.
+        
+        Args:
+            user_message (str): The user's message
+            assistant_response (str): The assistant's response
+            category (str): The category of interaction (search, talk, help, etc.)
+        """
+        self.chat_history.append({
+            "user": user_message,
+            "assistant": assistant_response,
+            "category": category,
+            
+        })
+        
+        # Keep only the last max_history_length exchanges
+        if len(self.chat_history) > self.max_history_length:
+            self.chat_history = self.chat_history[-self.max_history_length:]
+    
+    def _get_chat_history_context(self, include_categories: Optional[List[str]] = None) -> str:
+        """
+        Get formatted chat history for context in LLM calls.
+        
+        Args:
+            include_categories (Optional[List[str]]): Only include exchanges from these categories
+            
+        Returns:
+            str: Formatted chat history
+        """
+        if not self.chat_history:
+            return ""
+        
+        filtered_history = self.chat_history
+        if include_categories:
+            filtered_history = [
+                exchange for exchange in self.chat_history 
+                if exchange.get("category", "general") in include_categories
+            ]
+        
+        if not filtered_history:
+            return ""
+        
+        context_parts = ["Previous conversation context:"]
+        for exchange in filtered_history[-5:]:  # Last 5 exchanges for context
+            context_parts.append(f"User: {exchange['user']}")
+            context_parts.append(f"Assistant: {exchange['assistant'][:200]}...")  # Truncate long responses
+        
+        return "\n".join(context_parts)
+    
+    def _clear_chat_history(self):
+        """Clear the chat history."""
+        self.chat_history.clear()
+        console.print(Panel(
+            "[green]Chat history cleared successfully![/green]",
+            title="History Cleared", border_style="green"
+        ))
+    
+    def _show_chat_history(self):
+        """Display the current chat history."""
+        if not self.chat_history:
+            console.print(Panel(
+                "[yellow]No chat history available.[/yellow]",
+                title="Chat History", border_style="yellow"
+            ))
+            return
+        
+        history_text = []
+        for i, exchange in enumerate(self.chat_history, 1):
+            timestamp = exchange.get("timestamp", "Unknown")
+            category = exchange.get("category", "general")
+            history_text.append(f"[bold blue]{i}. [{category.upper()}] - {timestamp}[/bold blue]")
+            history_text.append(f"[cyan]You:[/cyan] {exchange['user']}")
+            history_text.append(f"[green]Assistant:[/green] {exchange['assistant'][:150]}...")
+            history_text.append("")
+        
+        console.print(Panel(
+            "\n".join(history_text),
+            title=f"Chat History ({len(self.chat_history)} exchanges)", 
+            border_style="blue"
+        ))
     def _predict_genres(self, music_embedding: torch.Tensor, text_embedding: Optional[torch.Tensor] = None) -> List[str]:
         """
         Predict genres using concatenated music and text embeddings.
@@ -1093,18 +1190,102 @@ Respond with ONLY the category name: help, talk, or search
             console.print(f"[red]Error categorizing input: {e}[/red]")
             return "talk"  # Default fallback
 
-    async def _get_search_parameters_from_llm(self, search_comment: str) -> Dict[str, Any]:
+    async def _generate_chat_response(self, user_input: str) -> str:
+        """
+        Generate a contextual chat response using chat history.
+        
+        Args:
+            user_input (str): The user's message
+            
+        Returns:
+            str: Generated response
+        """
+        # Get chat history context for talk category
+        chat_context = self._get_chat_history_context(include_categories=["talk", "help"])
+        
+        # Build the context section
+        context_section = ""
+        if chat_context.strip():
+            context_section = f"""
+CONVERSATION HISTORY:
+{chat_context}
+
+---
+"""
+
+        prompt = f"""
+You are a friendly and knowledgeable music database assistant. You have access to a MongoDB database of TikTok songs with chart information, genres, lyrics, and audio embeddings.
+
+{context_section}
+Your capabilities include:
+- Searching for songs by various criteria (artist, genre, country charts, etc.)
+- Finding similar songs using audio and lyrics embeddings
+- Providing information about music trends and charts
+- Helping users understand how to use the system
+
+Current user message: "{user_input}"
+
+Please provide a helpful, conversational response that:
+1. Acknowledges the conversation history if relevant
+2. Offers specific assistance related to music database queries
+3. Suggests concrete next steps or examples
+4. Maintains a friendly, professional tone
+5. Keeps the response concise (2-3 sentences)
+
+Respond naturally as if you're having a conversation with the user.
+"""
+        
+        import openai
+        
+        # Initialize OpenAI client
+        client = openai.OpenAI(api_key=self.query_generator.api_key)
+        
+        try:
+            # Make API call to OpenAI
+            response = client.chat.completions.create(
+                model="gpt-4.1-nano",
+                messages=[
+                    {"role": "system", "content": "You are a friendly music database assistant. Keep responses concise and helpful."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=200,
+                temperature=0.7
+            )
+            
+            # Extract the response text
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            console.print(f"[red]Error generating chat response: {e}[/red]")
+            return "I'm here to help you explore the music database! You can ask me to find songs, search by artist or genre, or discover similar music. What would you like to explore?"
+
+    async def _get_search_parameters_from_llm(self, search_comment: str, include_chat_history: bool = True) -> Dict[str, Any]:
         """
         Use ChatGPT to deduce additional search parameters from user comment.
         Args:
             search_comment (str): User's search comment (e.g., "in Germany", "Latin songs", etc.)
+            include_chat_history (bool): Whether to include chat history for context
             
         Returns:
             Dict[str, Any]: Search parameters including filters and limit
         """
+        # Get chat history context for search queries
+        context_section = ""
+        if include_chat_history:
+            chat_context = self._get_chat_history_context(include_categories=["search"])
+            if chat_context.strip():
+                context_section = f"""
+PREVIOUS SEARCH CONTEXT:
+{chat_context}
+
+---
+"""
+
         prompt = f"""
 You are an expert at converting natural language search requests into MongoDB query parameters.
-Given a user's search comment, determine what additional filters should be applied to a music vector search.
+Given a user's search comment and previous conversation context, determine what additional filters should be applied to a music vector search.
+
+{context_section}
 
 Available fields in the database:
 - genres: Array of strings (e.g., ["Latin", "Pop", "RKT"])
@@ -1540,7 +1721,7 @@ Provide only the JSON output. Do not include any other text or explanation.
             console.print(f"[red]Transcription failed for {wav_path}.[/red]")
             return {"text": "Transcription failed."}
 
-    async def _execute_unified_search(self, user_input: str, embedding_decision: Dict[str, Any], search_params: Dict[str, Any]):
+    async def _execute_unified_search(self, user_input: str, embedding_decision: Dict[str, Any], search_params: Dict[str, Any]) -> List[Dict]:
         """
         Execute search based on embedding decision and search parameters.
         
@@ -1567,29 +1748,31 @@ Provide only the JSON output. Do not include any other text or explanation.
             
             if search_type == "vector_only":
                 # Vector search with embeddings
-                await self._execute_vector_search(embedding_decision, filters, limit, description)
+                return await self._execute_vector_search(embedding_decision, filters, limit, description)
                 
             elif search_type == "filter_only":
                 # Traditional MongoDB find with filters
-                await self._execute_filter_search(filters, limit, description)
+                return await self._execute_filter_search(filters, limit, description)
                 
             elif search_type == "hybrid":
                 # Combine vector and filter search
-                await self._execute_hybrid_search(embedding_decision, filters, limit, description)
+                return await self._execute_hybrid_search(embedding_decision, filters, limit, description)
                 
             else:
                 console.print(Panel(
                     f"[red]Unknown search type: {search_type}[/red]",
                     title="Search Error", border_style="red"
                 ))
+                return []
         
         except Exception as e:
             console.print(Panel(
                 f"[red]❌ Error executing search: {str(e)}[/red]",
                 title="Search Error", border_style="red"
             ))
+            return []
 
-    async def _execute_vector_search(self, embedding_decision: Dict[str, Any], filters: Dict, limit: int, description: str):
+    async def _execute_vector_search(self, embedding_decision: Dict[str, Any], filters: Dict, limit: int, description: str) -> List[Dict]:
         """Execute vector search using available embeddings."""
         query_vector = None
         vector_path = None
@@ -1608,7 +1791,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 "[yellow]No suitable embeddings available for vector search[/yellow]",
                 title="Vector Search Warning", border_style="yellow"
             ))
-            return
+            return []
         
         # Separate basic filters (for vector search) from complex filters (for post-match)
         basic_filters = {}
@@ -1685,11 +1868,12 @@ Provide only the JSON output. Do not include any other text or explanation.
                     "[yellow]No similar songs found in the top 100 matches.[/yellow]",
                     title="No Results", border_style="yellow"
                 ))
-            return
+            return []
         
         self._display_search_results(results, description, "vector")
+        return results
 
-    async def _execute_filter_search(self, filters: Dict, limit: int, description: str):
+    async def _execute_filter_search(self, filters: Dict, limit: int, description: str) -> List[Dict]:
         """Execute traditional MongoDB find with filters."""
         pipeline = [
             {"$match": filters if filters and filters != {} else {}},
@@ -1703,15 +1887,16 @@ Provide only the JSON output. Do not include any other text or explanation.
         
         results = list(self.collection.aggregate(pipeline))
         self._display_search_results(results, description, "filter")
+        return results
 
-    async def _execute_hybrid_search(self, embedding_decision: Dict[str, Any], filters: Dict, limit: int, description: str):
+    async def _execute_hybrid_search(self, embedding_decision: Dict[str, Any], filters: Dict, limit: int, description: str) -> List[Dict]:
         """Execute hybrid search combining vector and filter approaches."""
         # For now, prioritize vector search if embeddings are available
         if (embedding_decision.get('use_music_embedding') and hasattr(self, 'current_embedding') and self.current_embedding is not None) or \
            (embedding_decision.get('use_text_embedding') and hasattr(self, 'current_text_embedding') and self.current_text_embedding is not None):
-            await self._execute_vector_search(embedding_decision, filters, limit, description)
+            return await self._execute_vector_search(embedding_decision, filters, limit, description)
         else:
-            await self._execute_filter_search(filters, limit, description)
+            return await self._execute_filter_search(filters, limit, description)
 
     def _display_search_results(self, results: List[Dict], description: str, search_type: str):
         """Display search results with appropriate formatting."""
@@ -1794,6 +1979,9 @@ Provide only the JSON output. Do not include any other text or explanation.
             "• /search --file audio.mp3 --prompt 'in Germany' - Search with file and filters\n"
             "• /search --file audio.mp3 - Search with new file only\n"
             "• /search --prompt 'Latin songs' - Text-only search with filters\n\n"
+            "[bold cyan]Chat History Commands:[/bold cyan]\n"
+            "• /history - Show conversation history\n"
+            "• /clear - Clear conversation history\n\n"
             "[yellow]Type 'quit' or 'exit' to end the session.[/yellow]",
             title="Welcome", border_style="blue"
         ))
@@ -1834,6 +2022,15 @@ Provide only the JSON output. Do not include any other text or explanation.
                     await self._handle_loadtext_command(args_line)
                     continue
 
+                # Check for history commands
+                if user_input.lower() == '/history':
+                    self._show_chat_history()
+                    continue
+
+                if user_input.lower() == '/clear':
+                    self._clear_chat_history()
+                    continue
+
                 # Orchestrator: Categorize the input
                 with console.status("[bold blue]Analyzing input...[/bold blue]", spinner="dots"):
                     category = await self._categorize_input(user_input)
@@ -1843,37 +2040,34 @@ Provide only the JSON output. Do not include any other text or explanation.
                 
                 # Handle based on category
                 if category == "help":
+                    help_response = (
+                        "Here's how I can help you explore the music database:\n\n"
+                        "🔍 Search for songs by artist, genre, country charts, etc.\n"
+                        "🎵 Find similar songs using audio and lyrics embeddings\n"
+                        "📊 Get information about music trends and chart rankings\n"
+                        "💬 Use commands like /load, /search, /history for advanced features\n\n"
+                        "Just ask me anything about music or use the special commands!"
+                    )
+                    
                     console.print(Panel(
-                        "[bold blue]🤖 MongoDB Song Database Chatbot CLI[/bold blue]\n\n"
-                        "Ask me questions about the song database!\n\n"
-                        "Example questions:\n"
-                        "• Find all songs that were ranked #1 in Brazil.\n"
-                        "• Show me songs by Ponte Perro that charted in Argentina.\n"
-                        "• List all Latin songs with Spanish lyrics.\n"
-                        "• Find songs longer than 3 minutes with high language probability.\n"
-                        "• Find similar songs (uses loaded audio/lyrics embeddings)\n\n"
-                        "[bold green]Special Commands:[/bold green]\n"
-                        "• /load local/path/to/file - Preprocess an audio file with MERT\n"
-                        "• /loadtext --text 'lyrics here' [--lang eng] [--song_id XYZ] - Embed lyrics text and optionally save to DB\n"
-                        "• /loadtext --file /path/to/lyrics.txt [--lang spa] [--song_id XYZ] - Embed lyrics from a file\n"
-                        "• /search - Find similar songs using vector search (requires loaded audio)\n"
-                        "• /search --file audio.mp3 --prompt 'in Germany' - Search with file and filters\n"
-                        "• /search --file audio.mp3 - Search with new file only\n"
-                        "• /search --prompt 'Latin songs' - Text-only search with filters\n\n"
-                        "[yellow]Type 'quit' or 'exit' to end the session.[/yellow]",
+                        f"[bold blue]🤖 MongoDB Song Database Chatbot CLI[/bold blue]\n\n{help_response}",
                         title="Help", border_style="blue"
                     ))
+                    
+                    # Add to chat history
+                    self._add_to_chat_history(user_input, help_response, "help")
                 
                 elif category == "talk":
+                    # Generate contextual chat response using history
+                    chat_response = await self._generate_chat_response(user_input)
+                    
                     console.print(Panel(
-                        f"[bold green]Hello! 👋[/bold green]\n\n"
-                        f"I'm your music database assistant. I can help you:\n"
-                        f"• Search for songs and artists\n"
-                        f"• Find similar songs using audio or lyrics\n"
-                        f"• Answer questions about the music database\n\n"
-                        f"Just ask me anything about music!",
+                        f"[bold green]💬 Assistant[/bold green]\n\n{chat_response}",
                         title="Chat", border_style="green"
                     ))
+                    
+                    # Add to chat history
+                    self._add_to_chat_history(user_input, chat_response, "talk")
                 
                 elif category == "search":
                     # Enhanced search: determine embeddings and search parameters
@@ -1896,11 +2090,15 @@ Provide only the JSON output. Do not include any other text or explanation.
                         ))
                     
                     # 3. Execute the search based on the determined approach
-                    await self._execute_unified_search(
+                    search_results = await self._execute_unified_search(
                         user_input=user_input,
                         embedding_decision=embedding_decision,
                         search_params=search_params
                     )
+                    
+                    # Add search to chat history
+                    search_summary = f"Found {len(search_results) if search_results else 0} results for: {search_params.get('description', 'music search')}"
+                    self._add_to_chat_history(user_input, search_summary, "search")
             
             except Exception as e:
                 console.print(f"[red]An unexpected error occurred: {e}[/red]")
