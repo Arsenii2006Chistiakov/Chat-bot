@@ -646,6 +646,9 @@ class MongoChatbot:
             self.chat_history = []  # Store conversation history as list of dicts
             self.max_history_length = 10  # Maximum number of exchanges to keep
             
+            # Initialize search results storage
+            self.proposed_results = []  # Store last search results for /add command
+            
             # Initialize genre classification model
             self.genre_model = None
             self.genre_labels = None
@@ -876,6 +879,83 @@ class MongoChatbot:
             title=f"Chat History ({len(self.chat_history)} exchanges)", 
             border_style="blue"
         ))
+
+    async def _handle_add_command(self, user_input: str):
+        """Handle /add i command to add i'th search result to context."""
+        try:
+            # Parse the index from the command
+            parts = user_input.strip().split()
+            if len(parts) != 2:
+                console.print("[red]Usage: /add <index> (e.g., /add 1)[/red]")
+                return
+            
+            try:
+                index = int(parts[1]) - 1  # Convert to 0-based index
+            except ValueError:
+                console.print("[red]Please provide a valid number (e.g., /add 1)[/red]")
+                return
+            
+            # Check if we have search results
+            if not self.proposed_results:
+                console.print("[yellow]No search results available. Please perform a search first.[/yellow]")
+                return
+            
+            # Check if index is valid
+            if index < 0 or index >= len(self.proposed_results):
+                console.print(f"[red]Invalid index. Please choose between 1 and {len(self.proposed_results)}.[/red]")
+                return
+            
+            # Get the selected result
+            selected_result = self.proposed_results[index]
+            trend_status = selected_result.get("TREND_STATUS")
+            
+            # Check if the song has trend status
+            if trend_status != "PROCESSED":
+                console.print("[red]Can't add: Selected song doesn't have trend information.[/red]")
+                return
+            
+            # Get detailed trend information from TOP_TIKTOK_TRENDS collection
+            trend_details = self.trends_collection.find_one({})  # Get the first (and likely only) trend
+            
+            if not trend_details:
+                console.print("[red]Can't add: No trend details found in database.[/red]")
+                return
+            
+            # Extract detailed information
+            detailed_description = trend_details.get("detailedDescription", "")
+            trend_explanation = trend_details.get("trendExplanation", "")
+            
+            # Create context entry
+            context_entry = {
+                "song_name": selected_result.get("song_name", "N/A"),
+                "artist_name": selected_result.get("artist_name", "N/A"),
+                "genres": selected_result.get("genres", []),
+                "lyrics": selected_result.get("lyrics", ""),
+                "trend_description": selected_result.get("trend_description", ""),
+                "detailed_description": detailed_description,
+                "trend_explanation": trend_explanation,
+                "added_at": str(datetime.now())
+            }
+            
+            # Store in context (initialize if needed)
+            if not hasattr(self, 'context_songs'):
+                self.context_songs = []
+            
+            self.context_songs.append(context_entry)
+            
+            # Display success message
+            console.print(Panel(
+                f"[bold green]✅ Successfully added to context![/bold green]\n\n"
+                f"[bold]Song:[/bold] {context_entry['song_name']} by {context_entry['artist_name']}\n"
+                f"[bold]Trend:[/bold] {context_entry['trend_description']}\n"
+                f"[bold]Detailed Description:[/bold] {detailed_description}\n"
+                f"[bold]Trend Explanation:[/bold] {trend_explanation}",
+                title="Added to Context", border_style="green"
+            ))
+            
+        except Exception as e:
+            console.print(f"[red]Error adding song to context: {e}[/red]")
+
     def _predict_genres(self, music_embedding: torch.Tensor, text_embedding: Optional[torch.Tensor] = None) -> List[str]:
         """
         Predict genres using concatenated music and text embeddings.
@@ -1682,7 +1762,8 @@ Provide only the JSON output. Do not include any other text or explanation.
                 
             results = list(self.collection.aggregate(pipeline))
             
-
+            # Store results for /add command
+            self.proposed_results = results
             
             if not results:
                 console.print(Panel(
@@ -1941,6 +2022,9 @@ Provide only the JSON output. Do not include any other text or explanation.
                 ))
             return []
         
+        # Store results for /add command
+        self.proposed_results = results
+        
         self._display_search_results(results, description, "vector")
         return results
 
@@ -1971,6 +2055,9 @@ Provide only the JSON output. Do not include any other text or explanation.
         ]
         
         results = list(self.collection.aggregate(pipeline))
+        
+        # Store results for /add command
+        self.proposed_results = results
         
         self._display_search_results(results, description, "filter")
         return results
@@ -2075,6 +2162,8 @@ Provide only the JSON output. Do not include any other text or explanation.
             "[bold cyan]Chat History Commands:[/bold cyan]\n"
             "• /history - Show conversation history\n"
             "• /clear - Clear conversation history\n\n"
+            "[bold magenta]Context Commands:[/bold magenta]\n"
+            "• /add <index> - Add search result to context (e.g., /add 1)\n\n"
             "[yellow]Type 'quit' or 'exit' to end the session.[/yellow]",
             title="Welcome", border_style="blue"
         ))
@@ -2122,6 +2211,11 @@ Provide only the JSON output. Do not include any other text or explanation.
 
                 if user_input.lower() == '/clear':
                     self._clear_chat_history()
+                    continue
+
+                # Check for add command
+                if user_input.lower().startswith('/add'):
+                    await self._handle_add_command(user_input)
                     continue
 
                 # Orchestrator: Categorize the input
