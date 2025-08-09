@@ -943,15 +943,8 @@ class MongoChatbot:
             
             self.context_songs.append(context_entry)
             
-            # Display success message
-            console.print(Panel(
-                f"[bold green]✅ Successfully added to context![/bold green]\n\n"
-                f"[bold]Song:[/bold] {context_entry['song_name']} by {context_entry['artist_name']}\n"
-                f"[bold]Trend:[/bold] {context_entry['trend_description']}\n"
-                f"[bold]Detailed Description:[/bold] {detailed_description}\n"
-                f"[bold]Trend Explanation:[/bold] {trend_explanation}",
-                title="Added to Context", border_style="green"
-            ))
+            # Simple success message
+            console.print(f"[green]✅ Added '{context_entry['song_name']}' by {context_entry['artist_name']} to context[/green]")
             
         except Exception as e:
             console.print(f"[red]Error adding song to context: {e}[/red]")
@@ -961,7 +954,18 @@ class MongoChatbot:
         try:
             # Check if we have context songs to analyze
             if not hasattr(self, 'context_songs') or not self.context_songs:
-                return "I don't have any songs in context to analyze. Please search for songs and use /add <index> to add them to context first."
+                return """I don't have any songs in context to analyze yet. To perform deep analysis, please:
+
+1. Search for songs related to your question (e.g., "find songs with trends in Sweden")
+2. Use /add <index> to add interesting results to context
+3. Then ask your analysis questions
+
+For example:
+• Search: "find songs that charted in Sweden"
+• Add: "/add 1" (adds first result to context)  
+• Analyze: "explain why this trend became popular in Sweden"
+
+Would you like me to help you search for relevant songs first?"""
             
             # Build context from stored songs
             context_parts = []
@@ -1321,7 +1325,12 @@ You are an input categorizer for a music database chatbot. Categorize the user's
    Examples: "find songs by artist X", "show me Latin songs", "songs from Brazil", "popular songs", "find similar songs", "match this song", "what songs are like this", "find similar lyrics"
 
 4. "analysis" - User wants deep analysis, explanations, or reasoning about trends, songs, genres, or cultural phenomena
-   Examples: "explain why this trend took off in Germany", "tell me more about this song and genre", "why did this become popular", "analyze the cultural impact", "what makes this genre unique", "explain the trend phenomenon"
+   Examples: "explain why this trend took off in Germany", "tell me more about this song and genre", "why did this become popular", "analyze the cultural impact", "what makes this genre unique", "explain the trend phenomenon", "analyze why this trend became popular", "explain me why this trend became so popular", "how could I use this trend", "why this trend mecame so popular"
+   
+   KEY INDICATORS for analysis:
+   - Contains words like: "explain", "analyze", "why", "how", "what makes", "tell me more about"
+   - Asks about trends, popularity, cultural phenomena, genre characteristics
+   - Seeks reasoning or deep understanding rather than just data
 
 User input: "{user_input}"
 
