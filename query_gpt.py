@@ -630,12 +630,13 @@ class MongoChatbot:
             self.client = pymongo.MongoClient(self.mongo_uri)
             self.db = self.client.HUGO_MODEL_DB
             self.collection = self.db.TOP_TIKTOK_SOUNDS
+            self.trends_collection=self.db.TOP_TIKTOK_TRENDS
             self.query_generator = MongoDBQueryGenerator()
             
             # Initialize MERT embedder for audio processing
-            console.print("[blue]Initializing MERT embedder...[/blue]")
+            #console.print("[blue]Initializing MERT embedder...[/blue]")
             self.mert_embedder = MERTEmbedder()
-            console.print("[green]✅ MERT embedder initialized successfully[/green]")
+            #console.print("[green]✅ MERT embedder initialized successfully[/green]")
             self.current_embedding = None  # Store the current audio embedding
             self.current_transcription_text = None  # Store last transcription text
             
@@ -1035,11 +1036,18 @@ class MongoChatbot:
             #         timestamp = latest_entry.get("timestamp", "N/A")
             #         charts_info += f"  - [bold]{country}:[/bold] Rank {rank} (as of {timestamp})\n"
 
+            # Add trend description if available
+            trend_description = doc.get("trend_description")
+            trend_info = ""
+            if trend_description and doc.get("TREND_STATUS") == "PROCESSED":
+                trend_info = f"[bold]Trend:[/bold] {trend_description}\n"
+            
             panel_content = (
                 f"[bold blue]Result {i}[/bold blue]\n\n"
                 f"[bold]Song Name:[/bold] {song_name}\n"
                 f"[bold]Artist:[/bold] {artist_name}\n"
                 f"[bold]Genres:[/bold] {genres}\n"
+                f"{trend_info}"
                 #f"[bold]First Seen:[/bold] {doc.get('first_seen', 'N/A')}\n"
             )
             
@@ -1148,7 +1156,7 @@ You are an input categorizer for a music database chatbot. Categorize the user's
    Examples: "help", "what can you do", "how does this work", "show me the commands"
 
 2. "talk" - User is making casual conversation, greetings, or general chat
-   Examples: "hello", "how are you", "thanks", "goodbye", "nice to meet you"
+   Examples: "hello", "how are you", "thanks", "goodbye", "nice to meet you","let's just talk about tendencies in music","what do you know about most famous artists"
 
 3. "search" - User wants to search the database with natural language queries or find similar songs/lyrics
    Examples: "find songs by artist X", "show me Latin songs", "songs from Brazil", "popular songs", "find similar songs", "match this song", "what songs are like this", "find similar lyrics"
@@ -1586,6 +1594,14 @@ Provide only the JSON output. Do not include any other text or explanation.
                         }
                     },
                     {
+                        "$lookup": {
+                            "from": "TOP_TIKTOK_TRENDS",
+                            "localField": "trend_id",
+                            "foreignField": "_id",
+                            "as": "trend_info"
+                        }
+                    },
+                    {
                         "$project": {
                             "_id": 1,
                             "song_id": 1,
@@ -1597,7 +1613,9 @@ Provide only the JSON output. Do not include any other text or explanation.
                             "first_seen": 1,
                             "charts": 1,
                             "language_code": 1,
-                            "audio_metadata": 1
+                            "audio_metadata": 1,
+                            "TREND_STATUS": 1,
+                            "trend_description": {"$arrayElemAt": ["$trend_info.trend_description", 0]}
                         }
                     },
                     {
@@ -1611,6 +1629,14 @@ Provide only the JSON output. Do not include any other text or explanation.
                         "$match": filters if filters and filters != {} else {}
                     },
                     {
+                        "$lookup": {
+                            "from": "TOP_TIKTOK_TRENDS",
+                            "localField": "trend_id",
+                            "foreignField": "_id",
+                            "as": "trend_info"
+                        }
+                    },
+                    {
                         "$project": {
                             "_id": 1,
                             "song_id": 1,
@@ -1621,7 +1647,9 @@ Provide only the JSON output. Do not include any other text or explanation.
                             "first_seen": 1,
                             "charts": 1,
                             "language_code": 1,
-                            "audio_metadata": 1
+                            "audio_metadata": 1,
+                            "TREND_STATUS": 1,
+                            "trend_description": {"$arrayElemAt": ["$trend_info.trend_description", 0]}
                         }
                     },
                     {
@@ -1668,12 +1696,19 @@ Provide only the JSON output. Do not include any other text or explanation.
                 #         timestamp = latest_entry.get("timestamp", "N/A")
                 #         charts_info += f"  - [bold]{country}:[/bold] Rank {rank} (as of {timestamp})\n"
                 
+                # Add trend description if available
+                trend_description = result.get("trend_description")
+                trend_info = ""
+                if trend_description and result.get("TREND_STATUS") == "PROCESSED":
+                    trend_info = f"[bold]Trend:[/bold] {trend_description}\n"
+                
                 panel_content = (
                     f"[bold blue]Result {i}[/bold blue]\n\n"
                     f"[bold]Song Name:[/bold] {song_name}\n"
                     f"[bold]Artist:[/bold] {artist_name}\n"
                     f"[bold]Genres:[/bold] {genres}\n"
                     f"[bold]Language:[/bold] {language}\n"
+                    f"{trend_info}"
                     #f"[bold]Similarity Score:[/bold] {music_score:.4f}\n"
                     #f"[bold]First Seen:[/bold] {result.get('first_seen', 'N/A')}\n"
                     f"[bold]Lyrics Preview:[/bold] {lyrics}\n"
@@ -1834,12 +1869,21 @@ Provide only the JSON output. Do not include any other text or explanation.
             pipeline.append({"$match": complex_filters})
             console.print(f"[blue]Post-vector match filters: {complex_filters}[/blue]")
         
-        # Add projection and sorting
+        # Add lookup for trend descriptions
         pipeline.extend([
+            {
+                "$lookup": {
+                    "from": "TOP_TIKTOK_TRENDS",
+                    "localField": "trend_id",
+                    "foreignField": "_id",
+                    "as": "trend_info"
+                }
+            },
             {"$project": {
                 "_id": 1, "song_id": 1, "song_name": 1, "artist_name": 1,
                 "lyrics": 1, "genres": 1, "score": 1, "first_seen": 1,
-                "charts": 1, "language_code": 1, "audio_metadata": 1
+                "charts": 1, "language_code": 1, "audio_metadata": 1,
+                "TREND_STATUS": 1, "trend_description": {"$arrayElemAt": ["$trend_info.trend_description", 0]}
             }},
             {"$sort": {"score": -1}},
             {"$limit": limit}
@@ -1872,10 +1916,19 @@ Provide only the JSON output. Do not include any other text or explanation.
         """Execute traditional MongoDB find with filters."""
         pipeline = [
             {"$match": filters if filters and filters != {} else {}},
+            {
+                "$lookup": {
+                    "from": "TOP_TIKTOK_TRENDS",
+                    "localField": "trend_id",
+                    "foreignField": "_id",
+                    "as": "trend_info"
+                }
+            },
             {"$project": {
                 "_id": 1, "song_id": 1, "song_name": 1, "artist_name": 1,
                 "lyrics": 1, "genres": 1, "first_seen": 1, "charts": 1,
-                "language_code": 1, "audio_metadata": 1
+                "language_code": 1, "audio_metadata": 1, "TREND_STATUS": 1,
+                "trend_description": {"$arrayElemAt": ["$trend_info.trend_description", 0]}
             }},
             {"$limit": limit}
         ]
@@ -1941,6 +1994,11 @@ Provide only the JSON output. Do not include any other text or explanation.
             
             # if score is not None:
             #     panel_content += f"[bold]Similarity Score:[/bold] {score:.4f}\n"
+            
+            # Add trend description if available
+            trend_description = result.get("trend_description")
+            if trend_description and result.get("TREND_STATUS") == "PROCESSED":
+                panel_content += f"[bold]Trend:[/bold] {trend_description}\n"
             
             panel_content += (
                 #f"[bold]First Seen:[/bold] {result.get('first_seen', 'N/A')}\n"
