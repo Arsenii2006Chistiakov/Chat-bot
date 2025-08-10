@@ -1076,7 +1076,7 @@ Be specific, detailed, and use the context data to support your analysis.
             console.print(f"[red]Error predicting genres: {e}[/red]")
             return []
 
-    async def _handle_loadtext_command(self, args_line: str):
+    async def _handle_loadtext_command_legacy(self, args_line: str):
         """
         Handle the /loadtext command.
         Usage examples:
