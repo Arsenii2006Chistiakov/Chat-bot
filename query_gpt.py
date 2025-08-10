@@ -1400,7 +1400,8 @@ You are an input categorizer for a music database chatbot. Categorize the user's
    Examples: "hello", "how are you", "thanks", "goodbye", "nice to meet you"
 
 3. "search" - User wants to search the database with natural language queries or find similar songs/lyrics
-   Examples: "find songs by artist X", "show me Latin songs", "songs from Brazil", "popular songs", "find similar songs", "match this song", "what songs are like this", "find similar lyrics"
+   Examples: "find songs by artist X", "show me Latin songs", "songs from Brazil", "popular songs", "find similar songs", "match this song", "what songs are like this", "find similar lyrics",
+   "now make sure the song is in Japan" <- extending the query, "now filter the songs whcih have a genger rap" <- extending the query, 
 
 4. "analysis" - User wants deep analysis, explanations, or reasoning about trends, songs, genres, or cultural phenomena
    Examples: "explain why this trend took off in Germany", "tell me more about this song and genre", "why did this become popular", "analyze the cultural impact", "what makes this genre unique", "explain the trend phenomenon", "analyze why this trend became popular", "explain me why this trend became so popular", "how could I use this trend", "why this trend mecame so popular"
