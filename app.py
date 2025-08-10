@@ -29,6 +29,35 @@ from bson import ObjectId
 import numpy as np
 
 
+def _sanitize(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, bytes):
+        return value.decode('utf-8', errors='ignore')
+    if isinstance(value, np.generic):
+        try:
+            return value.item()
+        except Exception:
+            return str(value)
+    if isinstance(value, np.ndarray):
+        try:
+            return value.tolist()
+        except Exception:
+            return [str(x) for x in value]
+    if isinstance(value, dict):
+        return {str(k): _sanitize(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_sanitize(v) for v in list(value)]
+    # Fallback to string to avoid serialization errors
+    return str(value)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., description="User message or command")
     user_id: str = Field(..., description="User identifier")
@@ -160,29 +189,6 @@ async def chat(req: ChatRequest):
         with suppress_chatbot_output():
             await chatbot._handle_search_command(file_path, prompt)
         results = getattr(chatbot, 'proposed_results', []) or []
-
-        def _sanitize(value: Any) -> Any:
-            if value is None:
-                return None
-            if isinstance(value, (str, int, float, bool)):
-                return value
-            if isinstance(value, datetime):
-                return value.isoformat()
-            if isinstance(value, ObjectId):
-                return str(value)
-            if isinstance(value, bytes):
-                return value.decode('utf-8', errors='ignore')
-            if isinstance(value, np.generic):
-                return value.item()
-            if isinstance(value, np.ndarray):
-                return value.tolist()
-            if isinstance(value, dict):
-                return {str(k): _sanitize(v) for k, v in value.items()}
-            if isinstance(value, (list, tuple, set)):
-                return [_sanitize(v) for v in list(value)]
-            # Fallback to string
-            return str(value)
-
         sanitized_results = [_sanitize(doc) for doc in results]
         return ChatResponse(
             response=f"Search completed. Found {len(results)} results.",
