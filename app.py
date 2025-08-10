@@ -25,6 +25,8 @@ from pydantic import BaseModel, Field
 
 import query_gpt  # to access global console for suppression
 from query_gpt import MongoChatbot
+from bson import ObjectId
+import numpy as np
 
 
 class ChatRequest(BaseModel):
@@ -158,11 +160,35 @@ async def chat(req: ChatRequest):
         with suppress_chatbot_output():
             await chatbot._handle_search_command(file_path, prompt)
         results = getattr(chatbot, 'proposed_results', []) or []
+
+        def _sanitize(value: Any) -> Any:
+            if value is None:
+                return None
+            if isinstance(value, (str, int, float, bool)):
+                return value
+            if isinstance(value, datetime):
+                return value.isoformat()
+            if isinstance(value, ObjectId):
+                return str(value)
+            if isinstance(value, bytes):
+                return value.decode('utf-8', errors='ignore')
+            if isinstance(value, np.generic):
+                return value.item()
+            if isinstance(value, np.ndarray):
+                return value.tolist()
+            if isinstance(value, dict):
+                return {str(k): _sanitize(v) for k, v in value.items()}
+            if isinstance(value, (list, tuple, set)):
+                return [_sanitize(v) for v in list(value)]
+            # Fallback to string
+            return str(value)
+
+        sanitized_results = [_sanitize(doc) for doc in results]
         return ChatResponse(
             response=f"Search completed. Found {len(results)} results.",
             category="search",
             context_count=len(getattr(chatbot, 'context_songs', []) or []),
-            search_results=results,
+            search_results=sanitized_results,
         )
 
     if message.lower() == '/history':
