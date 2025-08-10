@@ -12,14 +12,18 @@ Endpoints:
 """
 
 import os
+import sys
+import io
 import asyncio
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+import query_gpt  # to access global console for suppression
 from query_gpt import MongoChatbot
 
 
@@ -56,6 +60,23 @@ async def get_session(user_id: str) -> MongoChatbot:
         if user_id not in _sessions:
             _sessions[user_id] = MongoChatbot()
         return _sessions[user_id]
+
+
+@contextmanager
+def suppress_chatbot_output():
+    """Suppress rich console prints and stdio from query_gpt during API calls."""
+    # Monkey-patch console.print
+    original_print = getattr(query_gpt.console, "print", None)
+    query_gpt.console.print = lambda *args, **kwargs: None
+    # Redirect stdout/stderr
+    f_out, f_err = io.StringIO(), io.StringIO()
+    try:
+        with redirect_stdout(f_out), redirect_stderr(f_err):
+            yield
+    finally:
+        # Restore
+        if original_print is not None:
+            query_gpt.console.print = original_print
 
 
 @app.get("/")
@@ -105,7 +126,8 @@ async def chat(req: ChatRequest):
     # Commands handled directly
     if message.startswith('/loadtext'):
         args_line = message[len('/loadtext'):]
-        await chatbot._handle_loadtext_command(args_line)
+        with suppress_chatbot_output():
+            await chatbot._handle_loadtext_command(args_line)
         response_text = "Processed /loadtext via embeddings API."
         return ChatResponse(
             response=response_text,
@@ -122,7 +144,8 @@ async def chat(req: ChatRequest):
                 context_count=len(getattr(chatbot, 'context_songs', []) or []),
             )
         file_path = parts[1].strip()
-        await chatbot._handle_load_command(file_path)
+        with suppress_chatbot_output():
+            await chatbot._handle_load_command(file_path)
         response_text = "Audio loaded via embeddings API. You can now run /search."
         return ChatResponse(
             response=response_text,
@@ -132,7 +155,8 @@ async def chat(req: ChatRequest):
 
     if message.startswith('/search'):
         file_path, prompt = chatbot._parse_search_command(message)
-        await chatbot._handle_search_command(file_path, prompt)
+        with suppress_chatbot_output():
+            await chatbot._handle_search_command(file_path, prompt)
         results = getattr(chatbot, 'proposed_results', []) or []
         return ChatResponse(
             response=f"Search completed. Found {len(results)} results.",
@@ -166,7 +190,8 @@ async def chat(req: ChatRequest):
         )
 
     # Otherwise, let the orchestrator decide
-    category = await chatbot._categorize_input(message)
+    with suppress_chatbot_output():
+        category = await chatbot._categorize_input(message)
     if category == "help":
         help_response = (
             "Here's how I can help you explore the music database:\n\n"
@@ -184,7 +209,8 @@ async def chat(req: ChatRequest):
         )
 
     if category == "talk":
-        chat_response = await chatbot._generate_chat_response(message)
+        with suppress_chatbot_output():
+            chat_response = await chatbot._generate_chat_response(message)
         chatbot._add_to_chat_history(message, chat_response, "talk")
         return ChatResponse(
             response=chat_response,
@@ -193,9 +219,10 @@ async def chat(req: ChatRequest):
         )
 
     if category == "search":
-        embedding_decision = await chatbot._determine_search_embeddings(message)
-        search_params = await chatbot._get_search_parameters_from_llm(message)
-        results = await chatbot._execute_unified_search(message, embedding_decision, search_params)
+        with suppress_chatbot_output():
+            embedding_decision = await chatbot._determine_search_embeddings(message)
+            search_params = await chatbot._get_search_parameters_from_llm(message)
+            results = await chatbot._execute_unified_search(message, embedding_decision, search_params)
         chatbot._add_to_chat_history(message, f"Found {len(results)} results.", "search")
         return ChatResponse(
             response=f"Search completed. Found {len(results)} results.",
@@ -205,7 +232,8 @@ async def chat(req: ChatRequest):
         )
 
     if category == "analysis":
-        analysis_response = await chatbot._handle_analysis_query(message)
+        with suppress_chatbot_output():
+            analysis_response = await chatbot._handle_analysis_query(message)
         chatbot._add_to_chat_history(message, analysis_response, "analysis")
         return ChatResponse(
             response=analysis_response,
