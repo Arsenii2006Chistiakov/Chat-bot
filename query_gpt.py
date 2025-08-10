@@ -40,6 +40,7 @@ import tempfile
 import numpy as np
 from pathlib import Path
 from contextlib import contextmanager
+from elevenlabs.client import ElevenLabs
 from split_lyrics import get_sentences
 
 
@@ -67,6 +68,57 @@ def temp_file(suffix=None):
             pass
 
 
+
+class ElevenLabsClient:
+    def __init__(self, api_key: str | None = None):
+        load_dotenv()
+        self.api_key = api_key or os.getenv("ELEVENLABS_API_KEY")
+        self.base_url = "https://api.elevenlabs.io/v1"
+        if not self.api_key:
+            self.enabled = False
+            self.client = None
+        else:
+            self.enabled = True
+            self.client = ElevenLabs(api_key=self.api_key)
+
+    def transcribe_sync(
+        self,
+        audio_path: str,
+        model_id: str = "scribe_v1",
+        language_code: str | None = None,
+        diarize: bool | None = False,
+        tag_audio_events: bool | None = False,
+    ) -> Dict[str, Any] | None:
+        if not self.enabled:
+            return None
+        if not os.path.exists(audio_path):
+            return None
+        try:
+            with open(audio_path, "rb") as audio_file:
+                kwargs: Dict[str, Any] = {
+                    "model_id": model_id,
+                }
+                # Only include optional params if explicitly provided
+                if tag_audio_events is not None:
+                    kwargs["tag_audio_events"] = tag_audio_events
+                if language_code is not None:
+                    kwargs["language_code"] = language_code
+                if diarize is not None:
+                    kwargs["diarize"] = diarize
+
+                result = self.client.speech_to_text.convert(
+                    file=audio_file,
+                    **kwargs,
+                )
+            # Normalize to dict-like
+            if isinstance(result, dict):
+                return result
+            # Fallback: try to extract attributes
+            text_val = getattr(result, "text", None)
+            return {"text": text_val} if text_val is not None else {"raw": str(result)}
+        except Exception as e:
+            console.print(f"[red]Transcription request failed: {e}[/red]")
+            return None
 
 class MERTEmbedder:  # no-op placeholder; embeddings handled by external API
     pass
