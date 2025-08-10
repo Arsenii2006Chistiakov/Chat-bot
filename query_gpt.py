@@ -35,6 +35,9 @@ from rich.prompt import Prompt
 from rich.syntax import Syntax
 import json
 import torch
+from pydub import AudioSegment
+import torchaudio
+import torchaudio.transforms as T
 """Note: Local audio processing libraries are unused after API integration."""
 import tempfile
 import numpy as np
