@@ -35,18 +35,13 @@ from rich.prompt import Prompt
 from rich.syntax import Syntax
 import json
 import torch
-import torchaudio
-import torchaudio.transforms as T
-from pydub import AudioSegment
+"""Note: Local audio processing libraries are unused after API integration."""
 import tempfile
 import numpy as np
 from pathlib import Path
-from transformers import Wav2Vec2FeatureExtractor, AutoModel
 from contextlib import contextmanager
-from elevenlabs.client import ElevenLabs
-from sentence_embeddings import MultilingualSentenceEmbeddings
 from split_lyrics import get_sentences
-from torch import nn
+
 
 # Suppress specific warnings
 warnings.filterwarnings("ignore", message="feature_extractor_cqt requires the libray 'nnAudio'")
@@ -58,26 +53,6 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="torchaudio")
 # Initialize Rich console
 console = Console()
 
-class SimpleFCNN(nn.Module):
-    """
-    A small fully-connected neural network for multi-label genre prediction.
-    Uses BCEWithLogitsLoss downstream, so outputs raw logits.
-    """
-
-    def __init__(self, input_dim: int, output_dim: int) -> None:
-        super().__init__()
-        self.network = nn.Sequential(
-            nn.Linear(input_dim, 512),
-            nn.ReLU(),
-            nn.Dropout(p=0.2),
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Dropout(p=0.2),
-            nn.Linear(256, output_dim),
-        )
-
-    def forward(self, features: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
-        return self.network(features)
 
 @contextmanager
 def temp_file(suffix=None):
@@ -91,134 +66,10 @@ def temp_file(suffix=None):
         except OSError:
             pass
 
-class ElevenLabsClient:
-    def __init__(self, api_key: str | None = None):
-        load_dotenv()
-        self.api_key = api_key or os.getenv("ELEVENLABS_API_KEY")
-        self.base_url = "https://api.elevenlabs.io/v1"
-        if not self.api_key:
-            self.enabled = False
-            self.client = None
-        else:
-            self.enabled = True
-            self.client = ElevenLabs(api_key=self.api_key)
 
-    def transcribe_sync(
-        self,
-        audio_path: str,
-        model_id: str = "scribe_v1",
-        language_code: str | None = None,
-        diarize: bool | None = False,
-        tag_audio_events: bool | None = False,
-    ) -> Dict[str, Any] | None:
-        if not self.enabled:
-            return None
-        if not os.path.exists(audio_path):
-            return None
-        try:
-            with open(audio_path, "rb") as audio_file:
-                kwargs: Dict[str, Any] = {
-                    "model_id": model_id,
-                }
-                # Only include optional params if explicitly provided
-                if tag_audio_events is not None:
-                    kwargs["tag_audio_events"] = tag_audio_events
-                if language_code is not None:
-                    kwargs["language_code"] = language_code
-                if diarize is not None:
-                    kwargs["diarize"] = diarize
 
-                result = self.client.speech_to_text.convert(
-                    file=audio_file,
-                    **kwargs,
-                )
-            # Normalize to dict-like
-            if isinstance(result, dict):
-                return result
-            # Fallback: try to extract attributes
-            text_val = getattr(result, "text", None)
-            return {"text": text_val} if text_val is not None else {"raw": str(result)}
-        except Exception as e:
-            console.print(f"[red]Transcription request failed: {e}[/red]")
-            return None
-
-class MERTEmbedder:
-    def __init__(
-        self,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
-        target_sr: int = 24000,  # Target sample rate for MERT
-        snippet_duration: int = 15,  # Duration in seconds to extract from start
-    ):
-        """
-        Initialize the MERT model for generating music embeddings.
-        
-        Args:
-            device: Device to run the model on ('cuda' or 'cpu')
-            target_sr: Target sample rate for audio processing
-            snippet_duration: Duration in seconds to extract from start of file
-        """
-        self.device = device
-        self.target_sr = target_sr
-        self.snippet_duration = snippet_duration
-        
-        #        console.print(f"[green]Initializing MERT model on {device}[/green]")
-        
-        # Load MERT model and processor with warnings suppressed
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            self.mert_model = AutoModel.from_pretrained(
-                "m-a-p/MERT-v1-330M", 
-                trust_remote_code=True
-            ).to(device)
-            
-            self.mert_processor = Wav2Vec2FeatureExtractor.from_pretrained(
-                "m-a-p/MERT-v1-330M",
-                trust_remote_code=True
-            )
-        
-        self.mert_model.eval()
-
-    def extract_snippet_and_waveform(self, audio_path: str) -> tuple[torch.Tensor, str]:
-        """
-        Decode audio once with pydub, extract ~20s snippet, export to a temp wav, and load waveform.
-        Returns (waveform_tensor [1, T], wav_path). Caller is responsible for deleting wav_path.
-        """
-        try:
-            audio = AudioSegment.from_file(str(audio_path))
-        except Exception as e:
-            console.print(f"[red]Error loading audio file {audio_path}: {str(e)}[/red]")
-            raise
-        # Extract snippet (first 20s to match user's change)
-        snippet = audio[:20000]
-        # Export snippet to a persistent temp wav file
-        fd, wav_path = tempfile.mkstemp(suffix=".wav")
-        os.close(fd)
-        snippet.export(wav_path, format="wav")
-        # Load with torchaudio
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            waveform, sr = torchaudio.load(wav_path)
-        # Resample if needed
-        if sr != self.target_sr:
-            resampler = T.Resample(sr, self.target_sr, dtype=waveform.dtype)
-            waveform = resampler(waveform)
-        # Force mono
-        if waveform.shape[0] > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
-        return waveform, wav_path
-
-    def embedding_from_waveform(self, waveform: torch.Tensor) -> torch.Tensor:
-        inputs = self.mert_processor(
-            waveform.squeeze().numpy(),
-            sampling_rate=self.target_sr,
-            return_tensors="pt"
-        )
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        with torch.no_grad():
-            outputs = self.mert_model(**inputs, output_hidden_states=True)
-        hidden_states = torch.stack(outputs.hidden_states)  # [layers, batch, time, dim]
-        embedding = hidden_states.mean(dim=[0, 1, 2])  # [1024]
-        return embedding.cpu()
+class MERTEmbedder:  # no-op placeholder; embeddings handled by external API
+    pass
 
     def _extract_first_20s_snippet_local(self, audio_path: str) -> torch.Tensor:
         """
@@ -381,18 +232,9 @@ class MERTEmbedder:
             return False
 
     async def _handle_loadtext_command(self, args_line: str):
-        """
-        Handle the /loadtext command.
-        Usage examples:
-          /loadtext --text "some lyrics here" --lang eng [--song_id XYZ]
-          /loadtext --file /path/to/lyrics.txt --lang spa [--song_id XYZ]
-        If --song_id is provided, will also save the mean embedding to MongoDB under `text_embedding`.
-        Always keeps the current mean text embedding in memory for vector search.
-        """
-        # Default values
+        """Handle the /loadtext command via external embeddings API."""
+        # Defaults
         lyrics_text: str | None = None
-        language_code: Optional[str] = None
-        song_id: str | None = None
         file_path: str | None = None
 
         # Simple arg parsing
@@ -401,25 +243,15 @@ class MERTEmbedder:
         while i < len(parts):
             token = parts[i]
             if token == "--text" and i + 1 < len(parts):
-                # Collect the rest as text
                 lyrics_text = " ".join(parts[i + 1:])
                 break
             elif token == "--file" and i + 1 < len(parts):
                 file_path = parts[i + 1]
                 i += 2
                 continue
-            elif token == "--lang" and i + 1 < len(parts):
-                language_code = parts[i + 1]
-                i += 2
-                continue
-            elif token == "--song_id" and i + 1 < len(parts):
-                song_id = parts[i + 1]
-                i += 2
-                continue
             else:
                 i += 1
 
-        # If not provided via flags, treat the raw remainder as text
         if lyrics_text is None and file_path is None:
             raw = args_line.strip()
             lyrics_text = raw if raw else None
@@ -442,33 +274,26 @@ class MERTEmbedder:
             ))
             return
 
-        embeddings_doc = self._process_lyrics_text(lyrics_text, language_code)
-        if not embeddings_doc:
+        try:
+            url = f"{self.embeddings_api_url}/generate-embeddings"
+            payload = {"text": lyrics_text, "user_id": "cli_user"}
+            resp = requests.post(url, json=payload, timeout=120)
+            resp.raise_for_status()
+            data = resp.json()
+            emb = data.get('embeddings', {})
+            self.current_text_embedding = emb.get('text_embedding') or emb.get('lyrics_embedding')
+
             console.print(Panel(
-                "[red]Could not generate embeddings for the provided lyrics.[/red]",
-                title="Embedding Error", border_style="red"
+                f"[bold green]✅ Text embedded via API[/bold green]\n\n"
+                f"Embedding available: {'✅' if self.current_text_embedding else '❌'}\n"
+                f"You can now run /search (uses the loaded text embedding).",
+                title="Success", border_style="green"
             ))
-            return
-
-        # Keep in memory for search
-        self.current_text_embedding = np.array(embeddings_doc["mean_embedding"], dtype=np.float32)
-
-        saved_msg = ""
-        if song_id:
-            if self._save_text_embedding_to_mongodb(song_id, embeddings_doc):
-                saved_msg = f"\nSaved to MongoDB for song_id: {song_id}"
-            else:
-                saved_msg = f"\n[Warning] No document updated for song_id: {song_id}"
-
-        console.print(Panel(
-            f"[bold green]✅ Text Loaded & Embedded[/bold green]\n\n"
-            f"Sentences: {embeddings_doc['num_sentences']}\n"
-            f"Embedding dim: {embeddings_doc['embedding_dim']}\n"
-            f"Language: {embeddings_doc['language_code']}\n"
-            f"You can now run /search (uses the loaded text embedding)."
-            f"{saved_msg}",
-            title="Success", border_style="green"
-        ))
+        except Exception as e:
+            console.print(Panel(
+                f"[red]❌ Error embedding text via API: {str(e)}[/red]",
+                title="Error", border_style="red"
+            ))
 class MongoDBQueryGenerator:
     """
     A class to generate MongoDB query JSON from natural language using an LLM.
@@ -522,8 +347,8 @@ You are an expert at converting natural language questions into structured Mongo
 You will be provided with an example document from the collection, conversation context, and a user's question.
 Your task is to generate a JSON object that can be used directly in a PyMongo find() operation.
 The JSON object should have the following keys:
-- "filter": A MongoDB query filter (e.g., {{ "artist": "Capone" }}).
-- "projection": A MongoDB projection to select specific fields (e.g., {{ "title": 1, "artist": 1, "views": 1, "_id": 0 }}).
+- "filter": A MongoDB query filter (e.g., {{ "artist_name": "Capone" }}).
+- "projection": A MongoDB projection to select specific fields (e.g., {{ "title": 1, "artist_name": 1, "views": 1, "_id": 0 }}).
 - "sort": A MongoDB sort object (e.g., {{ "views": -1 }}).
 - "limit": An integer limit for the number of results.
 
@@ -635,11 +460,9 @@ class MongoChatbot:
             
 
             
-            # Initialize MERT embedder for audio processing
-            #console.print("[blue]Initializing MERT embedder...[/blue]")
-            self.mert_embedder = MERTEmbedder()
-            #console.print("[green]✅ MERT embedder initialized successfully[/green]")
-            self.current_embedding = None  # Store the current audio embedding
+            # Use external embeddings API instead of local model loading
+            self.embeddings_api_url = os.getenv('EMBEDDINGS_API_URL', 'http://localhost:8001')
+            self.current_embedding = None  # Store the current audio embedding (list[float])
             self.current_transcription_text = None  # Store last transcription text
             
             # Initialize chat history
@@ -652,36 +475,11 @@ class MongoChatbot:
             # Initialize context storage
             self.context_songs = []  # Store songs and content in user's context
             
-            # Initialize genre classification model
+            # No local models; embeddings provided by external API
             self.genre_model = None
             self.genre_labels = None
-            try:
-                console.print("[blue]Loading genre classification model...[/blue]")
-                if os.path.exists("genre_fcnn.pt"):
-                    checkpoint = torch.load("genre_fcnn.pt", map_location="cpu")
-                    input_dim = checkpoint["input_dim"]
-                    self.genre_labels = checkpoint["output_labels"]
-                    self.genre_model = SimpleFCNN(input_dim=input_dim, output_dim=len(self.genre_labels))
-                    self.genre_model.load_state_dict(checkpoint["model_state_dict"])
-                    self.genre_model.eval()
-                    console.print(f"[green]✅ Genre classification model loaded successfully[/green]")
-                    console.print(f"[blue]Available genres: {', '.join(self.genre_labels)}[/blue]")
-                else:
-                    console.print("[yellow]⚠️ Genre classification model file 'genre_fcnn.pt' not found[/yellow]")
-            except Exception as e:
-                console.print(f"[red]❌ Error loading genre classification model: {e}[/red]")
-                self.genre_model = None
-                self.genre_labels = None
-            
-            # Initialize text embeddings model for lyrics
-            try:
-                console.print("[blue]Initializing MultilingualSentenceEmbeddings model...[/blue]")
-                self.text_embeddings_model = MultilingualSentenceEmbeddings()
-                console.print("[green]✅ Text embeddings model initialized successfully[/green]")
-            except Exception as e:
-                console.print(f"[red]❌ Error initializing text embeddings model: {e}[/red]")
-                self.text_embeddings_model = None
-            self.current_text_embedding = None  # Mean-pooled lyrics embedding kept in memory
+            self.text_embeddings_model = None
+            self.current_text_embedding = None  # lyrics/text embedding kept in memory (list[float])
         except pymongo.errors.ConnectionFailure as e:
             console.print(Panel(
                 f"[red]Error connecting to MongoDB: {e}[/red]",
@@ -1230,82 +1028,42 @@ Be specific, detailed, and use the context data to support your analysis.
             ))
 
     async def _handle_load_command(self, file_path: str):
-        """Handle the /load command: preprocess, transcribe, and store in memory."""
+        """Handle the /load command via external embeddings API."""
         try:
             console.print(Panel(
                 f"[bold blue]🎵 Loading Audio[/bold blue]\n\n"
                 f"File: {file_path}\n"
-                f"Extracting snippet, embedding, and transcribing...",
+                f"Requesting embeddings from API...",
                 title="Audio Load", border_style="blue"
             ))
 
-            # Extract snippet and waveform, and create temp wav
-            waveform, wav_path = self.mert_embedder.extract_snippet_and_waveform(file_path)
+            url = f"{self.embeddings_api_url}/upload-audio"
+            with open(file_path, 'rb') as f:
+                files = { 'file': (os.path.basename(file_path), f) }
+                data = { 'user_id': 'cli_user' }
+                resp = requests.post(url, files=files, data=data, timeout=120)
+            resp.raise_for_status()
+            payload = resp.json()
 
-            # Kick off transcription concurrently
-            transcription_task = asyncio.create_task(self._transcribe_audio(wav_path))
+            emb = payload.get('embeddings', {})
+            self.current_embedding = emb.get('audio_embedding')  # list[float]
+            self.current_text_embedding = emb.get('lyrics_embedding')  # list[float] if present
+            self.current_transcription_text = emb.get('transcript')
 
-            # Compute embedding from waveform
-            embedding = self.mert_embedder.embedding_from_waveform(waveform)
-            self.current_embedding = embedding
-
-            # Await transcription
-            transcription_result = await transcription_task
-            self.current_transcription_text = transcription_result.get("text", "")
-
-            # If we have transcription text, also compute lyrics text embedding (mean-pooled)
-            text_embed_info = ""
-            try:
-                transcript_text = (self.current_transcription_text or "").strip()
-                if transcript_text:
-                    # Leave language_code None for automatic handling in sentence splitting
-                    text_embeddings_doc = self._process_lyrics_text(transcript_text, None)
-                    if text_embeddings_doc:
-                        self.current_text_embedding = np.array(text_embeddings_doc["mean_embedding"], dtype=np.float32)
-                        text_embed_info = (
-                            f"\nText sentences: {text_embeddings_doc['num_sentences']} "
-                            f"(mean text embedding cached)"
-                        )
-                    else:
-                        text_embed_info = "\n[Note] Transcript available but sentence embedding failed."
-                else:
-                    text_embed_info = "\n[Note] No transcript text returned for text embedding."
-            except Exception as e:
-                text_embed_info = f"\n[Note] Text embedding error: {e}"
-
-            # Predict genres using both music and text embeddings
-            genre_info = ""
-            try:
-                # Convert text embedding to tensor if available
-                text_embedding_tensor = None
-                if hasattr(self, 'current_text_embedding') and self.current_text_embedding is not None:
-                    text_embedding_tensor = torch.tensor(self.current_text_embedding, dtype=embedding.dtype, device=embedding.device)
-                
-                predicted_genres = self._predict_genres(embedding, text_embedding_tensor)
-                if predicted_genres:
-                    genre_info = f"\nPredicted genres: {', '.join(predicted_genres)}"
-                else:
-                    genre_info = "\n[Note] Genre prediction not available or failed."
-            except Exception as e:
-                genre_info = f"\n[Note] Genre prediction error: {e}"
-
-            # Cleanup temp wav
-            try:
-                if os.path.exists(wav_path):
-                    os.unlink(wav_path)
-            except Exception:
-                pass
+            info_lines = [
+                f"Audio embedding: {'✅' if self.current_embedding else '❌'}",
+                f"Lyrics embedding: {'✅' if self.current_text_embedding else '❌'}",
+                f"Transcript: {'✅' if self.current_transcription_text else '❌'}",
+            ]
 
             console.print(Panel(
-                f"[bold green]✅ Loaded & Stored[/bold green]\n\n"
-                f"Embedding: {list(embedding.shape)}\n"
-                f"Transcript chars: {len(self.current_transcription_text or '')}\n\n"
-                f"You can now run /search (uses the loaded embedding)." + text_embed_info + genre_info,
+                "[bold green]✅ Loaded via API[/bold green]\n\n" + "\n".join(info_lines) +
+                "\nYou can now run /search (uses the loaded embedding).",
                 title="Success", border_style="green"
             ))
         except Exception as e:
             console.print(Panel(
-                f"[red]❌ Error loading audio: {str(e)}[/red]",
+                f"[red]❌ Error loading audio via API: {str(e)}[/red]",
                 title="Error", border_style="red"
             ))
 
@@ -1674,31 +1432,19 @@ Provide only the JSON output. Do not include any other text or explanation.
                     title="Audio Processing", border_style="blue"
                 ))
                 
-                # Extract snippet and waveform
-                waveform, wav_path = self.mert_embedder.extract_snippet_and_waveform(file_path)
-                
-                # Transcribe audio concurrently
-                transcription_task = asyncio.create_task(self._transcribe_audio(wav_path))
-                
-                # Process the waveform and get embedding
-                embedding = self.mert_embedder.embedding_from_waveform(waveform)
-                query_vector = embedding.numpy().tolist()
-                
-                # Wait for transcription to complete
-                transcription_result = await transcription_task
-                search_comment = transcription_result.get("text", "")
-                print(search_comment)
-                
-                # If user did not pass a prompt, use transcription text as the prompt for parameter extraction
+                # Use the embeddings API to extract audio embedding (and transcript)
+                url = f"{self.embeddings_api_url}/upload-audio"
+                with open(file_path, 'rb') as f:
+                    files = { 'file': (os.path.basename(file_path), f) }
+                    data = { 'user_id': 'cli_user' }
+                    resp = requests.post(url, files=files, data=data, timeout=120)
+                resp.raise_for_status()
+                payload = resp.json()
+                emb = payload.get('embeddings', {})
+                query_vector = emb.get('audio_embedding')
+                search_comment = (emb.get('transcript') or '')
                 if (prompt is None or str(prompt).strip() == "") and search_comment:
                     prompt = search_comment
-                
-                # Clean up the temporary wav file
-                try:
-                    if os.path.exists(wav_path):
-                        os.unlink(wav_path)
-                except Exception:
-                    pass
                 
                 # console.print(Panel(
                 #     f"[bold green]✅ Audio Processing Complete![/bold green]\n\n"
@@ -1709,14 +1455,14 @@ Provide only the JSON output. Do not include any other text or explanation.
             else:
                 # Use stored embedding if available, otherwise set to None for text-only search
                 if hasattr(self, 'current_embedding') and self.current_embedding is not None:
-                    query_vector = self.current_embedding.numpy().tolist()
+                    query_vector = self.current_embedding
                     vector_path = "music_embedding"
                     console.print(Panel(
                         "[blue]Using previously loaded audio embedding[/blue]",
                         title="Info", border_style="blue"
                     ))
                 elif hasattr(self, 'current_text_embedding') and self.current_text_embedding is not None:
-                    query_vector = self.current_text_embedding.tolist()
+                    query_vector = self.current_text_embedding
                     vector_path = "text_embedding"
                     console.print(Panel(
                         "[blue]Using previously loaded text embedding[/blue]",
@@ -1936,27 +1682,8 @@ Provide only the JSON output. Do not include any other text or explanation.
             ))
 
     async def _transcribe_audio(self, wav_path: str) -> Dict[str, Any]:
-        """
-        Transcribes the audio file using ElevenLabs API (SDK).
-        Returns a dictionary containing the transcription text.
-        """
-        elevenlabs_client = ElevenLabsClient()
-        if not elevenlabs_client.enabled:
-            console.print(Panel(
-                "[red]ElevenLabs API key not found. Cannot perform transcription.[/red]",
-                title="Configuration Error", border_style="red"
-            ))
-            return {"text": "Transcription failed due to missing API key."}
-
-        console.print(f"[blue]Transcribing audio file: {wav_path}[/blue]")
-        # Offload blocking SDK call to a worker thread so it doesn't block the event loop
-        transcription_result = await asyncio.to_thread(elevenlabs_client.transcribe_sync, wav_path)
-        if transcription_result and transcription_result.get("text"):
-            console.print(f"[green]Transcription successful. Text: {transcription_result['text']}[/green]")
-            return transcription_result
-        else:
-            console.print(f"[red]Transcription failed for {wav_path}.[/red]")
-            return {"text": "Transcription failed."}
+        """Deprecated: transcription is handled by the embeddings API."""
+        return {"text": ""}
 
     async def _execute_unified_search(self, user_input: str, embedding_decision: Dict[str, Any], search_params: Dict[str, Any]) -> List[Dict]:
         """
@@ -2016,11 +1743,11 @@ Provide only the JSON output. Do not include any other text or explanation.
         
         # Determine which embedding to use
         if embedding_decision.get('use_music_embedding') and hasattr(self, 'current_embedding') and self.current_embedding is not None:
-            query_vector = self.current_embedding.numpy().tolist()
+            query_vector = self.current_embedding
             vector_path = "music_embedding"
             console.print("[blue]Using music embedding for vector search[/blue]")
         elif embedding_decision.get('use_text_embedding') and hasattr(self, 'current_text_embedding') and self.current_text_embedding is not None:
-            query_vector = self.current_text_embedding.tolist()
+            query_vector = self.current_text_embedding
             vector_path = "text_embedding"
             console.print("[blue]Using text embedding for vector search[/blue]")
         else:
