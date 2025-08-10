@@ -380,111 +380,111 @@ class MERTEmbedder:
             ))
             return False
 
-    async def _handle_loadtext_command(self, args_line: str):
-        """
-        Handle the /loadtext command by delegating text embedding to embeddings_api.
-        Usage examples:
-          /loadtext --text "some lyrics here" [--song_id XYZ]
-          /loadtext --file /path/to/lyrics.txt [--song_id XYZ]
-        """
-        # Default values
-        lyrics_text: str | None = None
-        song_id: str | None = None
-        file_path: str | None = None
+    # async def _handle_loadtext_command(self, args_line: str):
+    #     """
+    #     Handle the /loadtext command by delegating text embedding to embeddings_api.
+    #     Usage examples:
+    #       /loadtext --text "some lyrics here" [--song_id XYZ]
+    #       /loadtext --file /path/to/lyrics.txt [--song_id XYZ]
+    #     """
+    #     # Default values
+    #     lyrics_text: str | None = None
+    #     song_id: str | None = None
+    #     file_path: str | None = None
 
-        # Simple arg parsing
-        parts = args_line.strip().split()
-        i = 0
-        while i < len(parts):
-            token = parts[i]
-            if token == "--text" and i + 1 < len(parts):
-                lyrics_text = " ".join(parts[i + 1:])
-                break
-            elif token == "--file" and i + 1 < len(parts):
-                file_path = parts[i + 1]
-                i += 2
-                continue
-            elif token == "--song_id" and i + 1 < len(parts):
-                song_id = parts[i + 1]
-                i += 2
-                continue
-            else:
-                i += 1
+    #     # Simple arg parsing
+    #     parts = args_line.strip().split()
+    #     i = 0
+    #     while i < len(parts):
+    #         token = parts[i]
+    #         if token == "--text" and i + 1 < len(parts):
+    #             lyrics_text = " ".join(parts[i + 1:])
+    #             break
+    #         elif token == "--file" and i + 1 < len(parts):
+    #             file_path = parts[i + 1]
+    #             i += 2
+    #             continue
+    #         elif token == "--song_id" and i + 1 < len(parts):
+    #             song_id = parts[i + 1]
+    #             i += 2
+    #             continue
+    #         else:
+    #             i += 1
 
-        # If not provided via flags, treat the raw remainder as text
-        if lyrics_text is None and file_path is None:
-            raw = args_line.strip()
-            lyrics_text = raw if raw else None
+    #     # If not provided via flags, treat the raw remainder as text
+    #     if lyrics_text is None and file_path is None:
+    #         raw = args_line.strip()
+    #         lyrics_text = raw if raw else None
 
-        if file_path and not lyrics_text:
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    lyrics_text = f.read()
-            except Exception as e:
-                console.print(Panel(
-                    f"[red]Failed to read file: {e}[/red]",
-                    title="File Error", border_style="red"
-                ))
-                return
+    #     if file_path and not lyrics_text:
+    #         try:
+    #             with open(file_path, "r", encoding="utf-8") as f:
+    #                 lyrics_text = f.read()
+    #         except Exception as e:
+    #             console.print(Panel(
+    #                 f"[red]Failed to read file: {e}[/red]",
+    #                 title="File Error", border_style="red"
+    #             ))
+    #             return
 
-        if not lyrics_text:
-            console.print(Panel(
-                "[red]Please provide lyrics via --text or --file[/red]",
-                title="Usage Error", border_style="red"
-            ))
-            return
+    #     if not lyrics_text:
+    #         console.print(Panel(
+    #             "[red]Please provide lyrics via --text or --file[/red]",
+    #             title="Usage Error", border_style="red"
+    #         ))
+    #         return
 
-        try:
-            api_base = os.getenv("EMBEDDINGS_API_URL", "http://localhost:8001")
-            url = f"{api_base}/generate-embeddings"
-            payload = {"text": lyrics_text, "user_id": os.getenv("USER_ID", "cli_user")}
+    #     try:
+    #         api_base = os.getenv("EMBEDDINGS_API_URL", "http://localhost:8001")
+    #         url = f"{api_base}/generate-embeddings"
+    #         payload = {"text": lyrics_text, "user_id": os.getenv("USER_ID", "cli_user")}
 
-            resp = requests.post(url, json=payload, timeout=120)
-            if resp.status_code != 200:
-                raise RuntimeError(f"Embeddings API error {resp.status_code}: {resp.text}")
-            data = resp.json()
-            if not data.get("success"):
-                raise RuntimeError(data.get("message", "Failed to generate text embedding"))
+    #         resp = requests.post(url, json=payload, timeout=120)
+    #         if resp.status_code != 200:
+    #             raise RuntimeError(f"Embeddings API error {resp.status_code}: {resp.text}")
+    #         data = resp.json()
+    #         if not data.get("success"):
+    #             raise RuntimeError(data.get("message", "Failed to generate text embedding"))
 
-            embeddings = data.get("embeddings", {})
-            vec = embeddings.get("text_embedding") or embeddings.get("lyrics_embedding")
-            if not vec:
-                raise RuntimeError("Embeddings API did not return text embedding")
+    #         embeddings = data.get("embeddings", {})
+    #         vec = embeddings.get("text_embedding") or embeddings.get("lyrics_embedding")
+    #         if not vec:
+    #             raise RuntimeError("Embeddings API did not return text embedding")
 
-            # Keep in memory for search
-            self.current_text_embedding = np.array(vec, dtype=np.float32)
+    #         # Keep in memory for search
+    #         self.current_text_embedding = np.array(vec, dtype=np.float32)
 
-            # Optionally save to MongoDB if song_id provided
-            saved_msg = ""
-            if song_id:
-                try:
-                    result = self.collection.update_one(
-                        {"song_id": song_id},
-                        {"$set": {
-                            "text_embedding": vec,
-                            "embedding_dim": int(len(vec)),
-                            "embedding_processed_at": datetime.now().isoformat(),
-                        }}
-                    )
-                    if result.matched_count > 0:
-                        saved_msg = f"\nSaved to MongoDB for song_id: {song_id}"
-                    else:
-                        saved_msg = f"\n[Warning] No document updated for song_id: {song_id}"
-                except Exception as e:
-                    saved_msg = f"\n[Warning] Failed to save to MongoDB: {e}"
+    #         # Optionally save to MongoDB if song_id provided
+    #         saved_msg = ""
+    #         if song_id:
+    #             try:
+    #                 result = self.collection.update_one(
+    #                     {"song_id": song_id},
+    #                     {"$set": {
+    #                         "text_embedding": vec,
+    #                         "embedding_dim": int(len(vec)),
+    #                         "embedding_processed_at": datetime.now().isoformat(),
+    #                     }}
+    #                 )
+    #                 if result.matched_count > 0:
+    #                     saved_msg = f"\nSaved to MongoDB for song_id: {song_id}"
+    #                 else:
+    #                     saved_msg = f"\n[Warning] No document updated for song_id: {song_id}"
+    #             except Exception as e:
+    #                 saved_msg = f"\n[Warning] Failed to save to MongoDB: {e}"
 
-            console.print(Panel(
-                f"[bold green]✅ Text Loaded via API & Embedded[/bold green]\n\n"
-                f"Embedding dim: {len(vec)}\n"
-                f"You can now run /search (uses the loaded text embedding)."
-                f"{saved_msg}",
-                title="Success", border_style="green"
-            ))
-        except Exception as e:
-            console.print(Panel(
-                f"[red]Could not generate embeddings via API: {e}[/red]",
-                title="Embedding Error", border_style="red"
-            ))
+    #         console.print(Panel(
+    #             f"[bold green]✅ Text Loaded via API & Embedded[/bold green]\n\n"
+    #             f"Embedding dim: {len(vec)}\n"
+    #             f"You can now run /search (uses the loaded text embedding)."
+    #             f"{saved_msg}",
+    #             title="Success", border_style="green"
+    #         ))
+    #     except Exception as e:
+    #         console.print(Panel(
+    #             f"[red]Could not generate embeddings via API: {e}[/red]",
+    #             title="Embedding Error", border_style="red"
+    #         ))
 class MongoDBQueryGenerator:
     """
     A class to generate MongoDB query JSON from natural language using an LLM.
@@ -789,6 +789,111 @@ class MongoChatbot:
                 title="MongoDB Error", border_style="red"
             ))
             return False
+    async def _handle_loadtext_command(self, args_line: str):
+        """
+        Handle the /loadtext command by delegating text embedding to embeddings_api.
+        Usage examples:
+          /loadtext --text "some lyrics here" [--song_id XYZ]
+          /loadtext --file /path/to/lyrics.txt [--song_id XYZ]
+        """
+        # Default values
+        lyrics_text: str | None = None
+        song_id: str | None = None
+        file_path: str | None = None
+
+        # Simple arg parsing
+        parts = args_line.strip().split()
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token == "--text" and i + 1 < len(parts):
+                lyrics_text = " ".join(parts[i + 1:])
+                break
+            elif token == "--file" and i + 1 < len(parts):
+                file_path = parts[i + 1]
+                i += 2
+                continue
+            elif token == "--song_id" and i + 1 < len(parts):
+                song_id = parts[i + 1]
+                i += 2
+                continue
+            else:
+                i += 1
+
+        # If not provided via flags, treat the raw remainder as text
+        if lyrics_text is None and file_path is None:
+            raw = args_line.strip()
+            lyrics_text = raw if raw else None
+
+        if file_path and not lyrics_text:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    lyrics_text = f.read()
+            except Exception as e:
+                console.print(Panel(
+                    f"[red]Failed to read file: {e}[/red]",
+                    title="File Error", border_style="red"
+                ))
+                return
+
+        if not lyrics_text:
+            console.print(Panel(
+                "[red]Please provide lyrics via --text or --file[/red]",
+                title="Usage Error", border_style="red"
+            ))
+            return
+
+        try:
+            api_base = os.getenv("EMBEDDINGS_API_URL", "http://localhost:8001")
+            url = f"{api_base}/generate-embeddings"
+            payload = {"text": lyrics_text, "user_id": os.getenv("USER_ID", "cli_user")}
+
+            resp = requests.post(url, json=payload, timeout=120)
+            if resp.status_code != 200:
+                raise RuntimeError(f"Embeddings API error {resp.status_code}: {resp.text}")
+            data = resp.json()
+            if not data.get("success"):
+                raise RuntimeError(data.get("message", "Failed to generate text embedding"))
+
+            embeddings = data.get("embeddings", {})
+            vec = embeddings.get("text_embedding") or embeddings.get("lyrics_embedding")
+            if not vec:
+                raise RuntimeError("Embeddings API did not return text embedding")
+
+            # Keep in memory for search
+            self.current_text_embedding = np.array(vec, dtype=np.float32)
+
+            # Optionally save to MongoDB if song_id provided
+            saved_msg = ""
+            if song_id:
+                try:
+                    result = self.collection.update_one(
+                        {"song_id": song_id},
+                        {"$set": {
+                            "text_embedding": vec,
+                            "embedding_dim": int(len(vec)),
+                            "embedding_processed_at": datetime.now().isoformat(),
+                        }}
+                    )
+                    if result.matched_count > 0:
+                        saved_msg = f"\nSaved to MongoDB for song_id: {song_id}"
+                    else:
+                        saved_msg = f"\n[Warning] No document updated for song_id: {song_id}"
+                except Exception as e:
+                    saved_msg = f"\n[Warning] Failed to save to MongoDB: {e}"
+
+            console.print(Panel(
+                f"[bold green]✅ Text Loaded via API & Embedded[/bold green]\n\n"
+                f"Embedding dim: {len(vec)}\n"
+                f"You can now run /search (uses the loaded text embedding)."
+                f"{saved_msg}",
+                title="Success", border_style="green"
+            ))
+        except Exception as e:
+            console.print(Panel(
+                f"[red]Could not generate embeddings via API: {e}[/red]",
+                title="Embedding Error", border_style="red"
+            ))
 
     def _add_to_chat_history(self, user_message: str, assistant_response: str, category: str = "general"):
         """
