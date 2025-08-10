@@ -256,12 +256,11 @@ async def chat(req: ChatRequest):
             search_params = await chatbot._get_search_parameters_from_llm(message)
             results = await chatbot._execute_unified_search(message, embedding_decision, search_params)
         chatbot._add_to_chat_history(message, f"Found {len(results)} results.", "search")
-        sanitized_results = [_sanitize(doc) for doc in (results or [])]
         return ChatResponse(
             response=f"Search completed. Found {len(results)} results.",
             category="search",
             context_count=len(getattr(chatbot, 'context_songs', []) or []),
-            search_results=sanitized_results,
+            search_results=results,
         )
 
     if category == "analysis":
