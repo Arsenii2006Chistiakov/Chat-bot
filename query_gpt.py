@@ -620,6 +620,10 @@ Provide only the JSON output. Do not include any other text or explanation.
             
             # Extract the response text
             text = response.choices[0].message.content.strip()
+            try:
+                print(f"[DEBUG] LLM(get_query_from_llm) raw=\n{text}")
+            except Exception:
+                pass
             #print(text)
             return text
             
@@ -1430,6 +1434,10 @@ Respond with ONLY the category name: help, talk, search, or analysis
             
             # Extract the response text and clean it
             raw_response = response.choices[0].message.content.strip()
+            try:
+                print(f"[DEBUG] LLM(_categorize_input) raw=\n{raw_response}")
+            except Exception:
+                pass
             category = raw_response.lower()
             
             # Debug: Print raw orchestrator response
@@ -1509,7 +1517,12 @@ Respond naturally as if you're having a conversation with the user.
             )
             
             # Extract the response text
-            return response.choices[0].message.content.strip()
+            text = response.choices[0].message.content.strip()
+            try:
+                print(f"[DEBUG] LLM(_generate_chat_response) raw=\n{text}")
+            except Exception:
+                pass
+            return text
             
         except Exception as e:
             console.print(f"[red]Error generating chat response: {e}[/red]")
@@ -1595,6 +1608,10 @@ Provide only the JSON output. Do not include any other text or explanation.
             
             # Extract the response text
             text = response.choices[0].message.content.strip()
+            try:
+                print(f"[DEBUG] LLM(_get_search_parameters_from_llm) raw=\n{text}")
+            except Exception:
+                pass
             return json.loads(text)
             
         except Exception as e:
@@ -1678,6 +1695,10 @@ Provide only the JSON output. Do not include any other text or explanation.
             
             # Extract the response text
             text = response.choices[0].message.content.strip()
+            try:
+                print(f"[DEBUG] LLM(_determine_search_embeddings) raw=\n{text}")
+            except Exception:
+                pass
             return json.loads(text)
             
         except Exception as e:

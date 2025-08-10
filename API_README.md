@@ -20,6 +20,7 @@ A FastAPI-based REST API that wraps the MongoDB-Connected Chatbot functionality,
 - MongoDB instance running
 - OpenAI API key
 - All dependencies from `requirements.txt`
+- Optional but recommended: run the embeddings service in `embeddings_api.py` (used by `/load` and `/loadtext`)
 
 ## 🛠️ Installation
 
@@ -33,10 +34,21 @@ A FastAPI-based REST API that wraps the MongoDB-Connected Chatbot functionality,
    ```env
    OPENAI_API_KEY=your_openai_api_key_here
    MONGO_URI=your_mongodb_connection_string
-   ELEVENLABS_API_KEY=your_elevenlabs_api_key_here  # Optional
+    ELEVENLABS_API_KEY=your_elevenlabs_api_key_here  # Optional
+    EMBEDDINGS_API_URL=http://localhost:8001          # Optional; default shown
    ```
 
 ## 🚀 Running the API
+
+### Start the Embeddings Service (recommended)
+Start the embeddings API in a separate terminal (audio/text embeddings are delegated here):
+```bash
+python embeddings_api.py
+# or
+uvicorn embeddings_api:app --host 0.0.0.0 --port 8001 --reload
+```
+
+The embeddings API will be available at `http://localhost:8001`.
 
 ### Start the Server
 ```bash
@@ -109,8 +121,9 @@ The `/chat` endpoint automatically:
 // Load audio file
 {"message": "/load /path/to/song.mp3", "user_id": "user123"}
 
-// Process text
+// Process text (either inline or with --text)
 {"message": "/loadtext This is song lyrics content", "user_id": "user123"}
+{"message": "/loadtext --text 'This is song lyrics content'", "user_id": "user123"}
 
 // Clear context
 {"message": "/clear", "user_id": "user123"}
@@ -133,6 +146,18 @@ The `/chat` endpoint automatically:
 - **Response**: Confirmation message
 
 ## 🔧 Usage Examples
+
+### CLI Client
+
+An interactive client mirroring the original CLI is provided in `client_cli.py`.
+
+```
+export CHAT_API_URL=http://localhost:8000
+export USER_ID=cli_user
+python client_cli.py
+```
+
+Use the same commands as in the original CLI (e.g., `/load`, `/loadtext`, `/search`).
 
 ### Python Client Example
 
@@ -193,6 +218,18 @@ curl -X POST http://localhost:8000/chat \
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "/load /path/to/song.mp3", "user_id": "user123"}'
+
+### Embeddings API (optional direct calls)
+
+```
+# Upload audio and embed
+curl -X POST -F "file=@/path/to/song.mp3" -F "user_id=user123" http://localhost:8001/upload-audio
+
+# Text embedding
+curl -X POST http://localhost:8001/generate-embeddings \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Some lyrics", "user_id": "user123"}'
+```
 ```
 
 ## 🧪 Testing

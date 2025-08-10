@@ -17,7 +17,7 @@ import io
 import asyncio
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from contextlib import contextmanager, redirect_stdout, redirect_stderr
+from contextlib import contextmanager, redirect_stdout, redirect_stderr, nullcontext
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -84,6 +84,7 @@ app.add_middleware(
 # In-memory user sessions: user_id → MongoChatbot instance
 _sessions: Dict[str, MongoChatbot] = {}
 _lock = asyncio.Lock()
+DEBUG_CHAT = os.getenv("CHAT_DEBUG", "0") == "1"
 
 
 async def get_session(user_id: str) -> MongoChatbot:
@@ -108,6 +109,10 @@ def suppress_chatbot_output():
         # Restore
         if original_print is not None:
             query_gpt.console.print = original_print
+
+
+def exec_context():
+    return nullcontext() if DEBUG_CHAT else suppress_chatbot_output()
 
 
 @app.get("/")
@@ -153,11 +158,13 @@ async def chat(req: ChatRequest):
         raise HTTPException(status_code=400, detail="Message must not be empty")
 
     chatbot = await get_session(req.user_id)
+    # Basic request debug
+    print(f"[DEBUG] /chat user={req.user_id} message={message}")
 
     # Commands handled directly
     if message.startswith('/loadtext'):
         args_line = message[len('/loadtext'):]
-        with suppress_chatbot_output():
+        with exec_context():
             await chatbot._handle_loadtext_command(args_line)
         response_text = "Processed /loadtext via embeddings API."
         return ChatResponse(
@@ -175,7 +182,7 @@ async def chat(req: ChatRequest):
                 context_count=len(getattr(chatbot, 'context_songs', []) or []),
             )
         file_path = parts[1].strip()
-        with suppress_chatbot_output():
+        with exec_context():
             await chatbot._handle_load_command(file_path)
         response_text = "Audio loaded via embeddings API. You can now run /search."
         return ChatResponse(
@@ -186,7 +193,7 @@ async def chat(req: ChatRequest):
 
     if message.startswith('/search'):
         file_path, prompt = chatbot._parse_search_command(message)
-        with suppress_chatbot_output():
+        with exec_context():
             await chatbot._handle_search_command(file_path, prompt)
         results = getattr(chatbot, 'proposed_results', []) or []
         sanitized_results = [_sanitize(doc) for doc in results]
@@ -222,8 +229,9 @@ async def chat(req: ChatRequest):
         )
 
     # Otherwise, let the orchestrator decide
-    with suppress_chatbot_output():
+    with exec_context():
         category = await chatbot._categorize_input(message)
+    print(f"[DEBUG] /chat category={category}")
     if category == "help":
         help_response = (
             "Here's how I can help you explore the music database:\n\n"
@@ -241,7 +249,7 @@ async def chat(req: ChatRequest):
         )
 
     if category == "talk":
-        with suppress_chatbot_output():
+        with exec_context():
             chat_response = await chatbot._generate_chat_response(message)
         chatbot._add_to_chat_history(message, chat_response, "talk")
         return ChatResponse(
@@ -251,20 +259,21 @@ async def chat(req: ChatRequest):
         )
 
     if category == "search":
-        with suppress_chatbot_output():
+        with exec_context():
             embedding_decision = await chatbot._determine_search_embeddings(message)
             search_params = await chatbot._get_search_parameters_from_llm(message)
             results = await chatbot._execute_unified_search(message, embedding_decision, search_params)
         chatbot._add_to_chat_history(message, f"Found {len(results)} results.", "search")
+        sanitized_results = [_sanitize(doc) for doc in (results or [])]
         return ChatResponse(
             response=f"Search completed. Found {len(results)} results.",
             category="search",
             context_count=len(getattr(chatbot, 'context_songs', []) or []),
-            search_results=results,
+            search_results=sanitized_results,
         )
 
     if category == "analysis":
-        with suppress_chatbot_output():
+        with exec_context():
             analysis_response = await chatbot._handle_analysis_query(message)
         chatbot._add_to_chat_history(message, analysis_response, "analysis")
         return ChatResponse(
