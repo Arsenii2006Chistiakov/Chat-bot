@@ -649,6 +649,9 @@ class MongoChatbot:
             # Initialize search results storage
             self.proposed_results = []  # Store last search results for /add command
             
+            # Initialize context storage
+            self.context_songs = []  # Store songs and content in user's context
+            
             # Initialize genre classification model
             self.genre_model = None
             self.genre_labels = None
