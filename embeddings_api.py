@@ -20,14 +20,16 @@ import tempfile
 import shutil
 
 # Import the embedding models
-from query_gpt import MongoChatbot
+# Import embedding model classes directly, not via MongoChatbot
+from query_gpt import MERTEmbedder, ElevenLabsClient
+from sentence_embeddings import MultilingualSentenceEmbeddings
 
 # Load environment variables
 load_dotenv()
 
 # Global variables for models
-mert_embedder = None
-multilingual_model = None
+mert_embedder = None  # type: Optional[MERTEmbedder]
+multilingual_model = None  # type: Optional[MultilingualSentenceEmbeddings]
 
 # Pydantic models for API requests/responses
 class EmbeddingsRequest(BaseModel):
@@ -56,15 +58,11 @@ async def lifespan(app: FastAPI):
     global mert_embedder, multilingual_model
     
     try:
-        # Initialize a temporary chatbot instance to get the models
-        temp_chatbot = MongoChatbot()
-        mert_embedder = temp_chatbot.mert_embedder
-        multilingual_model = temp_chatbot.multilingual_model
+        # Initialize models directly
+        mert_embedder = MERTEmbedder()
+        multilingual_model = MultilingualSentenceEmbeddings()
         print("✅ Models loaded successfully")
-        
-        # Clean up temporary instance
-        del temp_chatbot
-        
+
     except Exception as e:
         print(f"❌ Error loading models: {e}")
         raise e
@@ -117,71 +115,59 @@ async def generate_embeddings(request: EmbeddingsRequest):
         if request.file_path:
             if not os.path.exists(request.file_path):
                 raise HTTPException(status_code=404, detail=f"Audio file not found: {request.file_path}")
+            if mert_embedder is None:
+                raise HTTPException(status_code=500, detail="MERT embedder is not initialized")
             
             print(f"🎵 Processing audio file: {request.file_path}")
             
-            # Create temporary chatbot instance for audio processing
-            temp_chatbot = MongoChatbot()
-            
+            # Extract snippet and waveform
+            waveform, wav_path = mert_embedder.extract_snippet_and_waveform(request.file_path)
             try:
-                # Load and process audio
-                await temp_chatbot._handle_load_command(request.file_path)
-                
-                # Get the embeddings
-                if temp_chatbot.current_embedding is not None:
-                    embeddings["audio_embedding"] = {
-                        "shape": temp_chatbot.current_embedding.shape,
-                        "dtype": str(temp_chatbot.current_embedding.dtype),
-                        "embedding_id": id(temp_chatbot.current_embedding)
-                    }
-                    print(f"✅ Audio embeddings generated: {embeddings['audio_embedding']['shape']}")
-                else:
-                    print("⚠️ No audio embeddings generated")
-                
-                # Get lyrics if available
-                if temp_chatbot.current_text_embedding is not None:
-                    embeddings["lyrics_embedding"] = {
-                        "shape": temp_chatbot.current_text_embedding.shape,
-                        "dtype": str(temp_chatbot.current_text_embedding.dtype),
-                        "embedding_id": id(temp_chatbot.current_text_embedding)
-                    }
-                    print(f"✅ Lyrics embeddings generated: {embeddings['lyrics_embedding']['shape']}")
-                else:
-                    print("⚠️ No lyrics embeddings generated")
-                
+                # Compute audio embedding
+                audio_embedding = mert_embedder.embedding_from_waveform(waveform)
+                embeddings["audio_embedding"] = audio_embedding.numpy().tolist()
+                print(f"✅ Audio embedding generated: dim={len(embeddings['audio_embedding'])}")
+
+                # Optional: Transcribe audio and compute text embedding from transcript
+                try:
+                    eleven_client = ElevenLabsClient()
+                    if getattr(eleven_client, "enabled", False):
+                        result = await asyncio.to_thread(eleven_client.transcribe_sync, wav_path)
+                        transcript_text = (result or {}).get("text")
+                        if transcript_text and multilingual_model is not None:
+                            text_embedding = multilingual_model.get_embedding(transcript_text)
+                            embeddings["lyrics_embedding"] = text_embedding.tolist()
+                            embeddings["transcript"] = transcript_text
+                            print("✅ Transcript-based text embedding generated")
+                        else:
+                            print("ℹ️ No transcript text returned or multilingual model not available")
+                    else:
+                        print("ℹ️ ElevenLabs not configured; skipping transcription")
+                except Exception as transcribe_err:
+                    print(f"⚠️ Transcription failed: {transcribe_err}")
             finally:
-                # Clean up temporary instance
-                del temp_chatbot
+                # Cleanup temp wav
+                try:
+                    if os.path.exists(wav_path):
+                        os.unlink(wav_path)
+                except Exception:
+                    pass
         
         # Process text if provided
         if request.text:
             print(f"📝 Processing text: {request.text[:100]}...")
-            
-            # Create temporary chatbot instance for text processing
-            temp_chatbot = MongoChatbot()
-            
+            if multilingual_model is None:
+                raise HTTPException(status_code=500, detail="Multilingual embeddings model is not initialized")
             try:
-                # Process text
-                await temp_chatbot._handle_loadtext_command(request.text)
-                
-                # Get the text embeddings
-                if temp_chatbot.current_text_embedding is not None:
-                    embeddings["text_embedding"] = {
-                        "shape": temp_chatbot.current_text_embedding.shape,
-                        "dtype": str(temp_chatbot.current_text_embedding.dtype),
-                        "embedding_id": id(temp_chatbot.current_text_embedding)
-                    }
-                    print(f"✅ Text embeddings generated: {embeddings['text_embedding']['shape']}")
-                else:
-                    print("⚠️ No text embeddings generated")
-                
-            finally:
-                # Clean up temporary instance
-                del temp_chatbot
+                text_embedding = multilingual_model.get_embedding(request.text)
+                embeddings["text_embedding"] = text_embedding.tolist()
+                print("✅ Text embedding generated")
+            except Exception as e:
+                print(f"⚠️ Failed to generate text embedding: {e}")
         
         # Prepare response
         if embeddings:
-            message = f"Successfully generated embeddings for: {', '.join(embeddings.keys())}"
+            message = f"Successfully generated: {', '.join(embeddings.keys())}"
             success = True
         else:
             message = "No embeddings were generated"
