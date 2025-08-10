@@ -169,7 +169,7 @@ async def chat(req: ChatRequest):
         response_text = "Processed /loadtext via embeddings API."
         return ChatResponse(
             response=response_text,
-            category="search",
+            category="load",
             context_count=len(getattr(chatbot, 'context_songs', []) or []),
         )
 
@@ -178,7 +178,7 @@ async def chat(req: ChatRequest):
         if len(parts) < 2 or not parts[1].strip():
             return ChatResponse(
                 response="Please provide a file path after /load. Example: /load /path/to/file.mp3",
-                category="help",
+                category="load",
                 context_count=len(getattr(chatbot, 'context_songs', []) or []),
             )
         file_path = parts[1].strip()
@@ -187,7 +187,7 @@ async def chat(req: ChatRequest):
         response_text = "Audio loaded via embeddings API. You can now run /search."
         return ChatResponse(
             response=response_text,
-            category="search",
+            category="load",
             context_count=len(getattr(chatbot, 'context_songs', []) or []),
         )
 
@@ -224,7 +224,7 @@ async def chat(req: ChatRequest):
         await chatbot._handle_add_command(message)
         return ChatResponse(
             response="Processed /add command.",
-            category="search",
+            category="add",
             context_count=len(getattr(chatbot, 'context_songs', []) or []),
         )
 
@@ -259,9 +259,20 @@ async def chat(req: ChatRequest):
         )
 
     if category == "search":
+        # Deduce search plan within suppressed context
         with exec_context():
             embedding_decision = await chatbot._determine_search_embeddings(message)
             search_params = await chatbot._get_search_parameters_from_llm(message)
+
+        # Print deduced queries to the API server terminal (outside suppression)
+        try:
+            print("[DEDUCED] embedding_decision=", embedding_decision)
+            print("[DEDUCED] search_params=", search_params)
+        except Exception:
+            pass
+
+        # Execute the search with suppressed internal output
+        with exec_context():
             results = await chatbot._execute_unified_search(message, embedding_decision, search_params)
         chatbot._add_to_chat_history(message, f"Found {len(results)} results.", "search")
         sanitized_results = [_sanitize(doc) for doc in (results or [])]
