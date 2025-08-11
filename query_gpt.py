@@ -1648,10 +1648,11 @@ Return a JSON object with the following structure:
 
 Examples:
 - "in Germany" → {{"filters": {{"charts.Germany": {{"$exists": true}}}}, "limit": 10, "description": "Songs that charted in Germany"}}
-- "trending in Germany in July" → {{"filters": {{"country": "Germany", "first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-01"}}}}, "limit": 10, "description": "Songs trending in Germany during July 2025"}}
-- "popular in Brazil in March" → {{"filters": {{"charts.Brazil": {{"$exists": true}}, "first_seen": {{"$lte": "2025-04-01"}}, "last_seen": {{"$gte": "2025-03-01"}}}}, "limit": 15, "description": "Songs popular in Brazil during March 2025"}}
+- "trending in Germany in July" → {{"filters": {{"country": "Germany", "first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-01"}}}}, "limit": 10, "description": "Songs trending in Germany during July 2025 using first_seen and last_seen"}}
+- "popular in Brazil in March" → {{"filters": {{"charts.Brazil": {{"$exists": true}}, "first_seen": {{"$lte": "2025-04-01"}}, "last_seen": {{"$gte": "2025-03-01"}}}}, "limit": 15, "description": "Songs popular in Brazil during March 2025 using first_seen and last_seen"}}
 - "Latin songs" → {{"filters": {{"genres": "latin"}}, "limit": 10, "description": "Latin genre songs"}}
 - "Spanish lyrics" → {{"filters": {{"language_code": "spa"}}, "limit": 10, "description": "Songs with Spanish lyrics"}}
+- "songs trending on the first week of August" → {{"filters": {{"first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-25"}}}}, "limit": 10, "description": "Songs trending on the first week of August using first_seen and last_seen"}}
 
 
 
