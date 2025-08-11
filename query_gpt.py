@@ -1621,8 +1621,11 @@ PREVIOUS SEARCH CONTEXT:
         prompt = f"""
 You are an expert at converting natural language search requests into MongoDB query parameters.
 Given a user's search comment and previous conversation context, determine what additional filters should be applied to a music vector search.
-
+-usually use all the previous search fields: forexample  1) find songs trending in Spain 2) find the rap ones -> spain + rap
+-if user explicilty says that he wants to start a fresh (e.g. now let's look into something else) -> don't use the previous search fields
+here is the previous search context:
 {context_section}
+
 
 Available fields in the database:
 - genres: lowercase, Array of strings (e.g., ["latin", "pop", "rkt"])
