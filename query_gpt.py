@@ -599,8 +599,9 @@ User: "Get all songs with RKT genre that are still being processed"
 Notes: 
 
 -genres always are lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
--when user says "find me a trending song", it doesn't mena that the TREND_STATUS is PROCESSED - but that the song if in charts. 
+-only set TREND_STATUS to "PROCESSED" if user asks for a song with a distinct video trend (e.g "find me a song with a dance trend related to it", "find me song wiht a meme trend")
 -country names always start with a capital letter: Brazil, Argentina, etc. no short forms. United States, United Kingdom, etc.
+-when user asks for "trending" songs, it doesn't mean that the TREND_STATUS is PROCESSED - but that the song is in charts. 
 
 User: "{natural_language_query}"
 
@@ -1573,7 +1574,7 @@ Available fields in the database:
 - TREND_STATUS: String (e.g., "PROCESSED", "UNPROCESSED")<- songs which have a consistent trend with videos, don't use if user asks for "trending"
 - country names are always full names like "United States" or "United Kingdom" or "United Arab Emirates"
 - genres are always lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
-
+- only set TREND_STATUS to "PROCESSED" if user asks for a song with a distinct video trend (e.g "find me a song with a dance trend related to it", "find me song wiht a meme trend")
 User comment: "{search_comment}"
 
 Return a JSON object with the following structure:
