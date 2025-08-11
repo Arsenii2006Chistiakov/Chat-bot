@@ -571,7 +571,7 @@ User: "List the top 5 songs by Ponte Perro that charted in Argentina"
 
 User: "Show me all Latin songs with Spanish lyrics"
 {{
-  "filter": {{ "genres": "Latin", "language_code": "spa" }},
+  "filter": {{ "genres": "latin", "language_code": "spa" }},
   "projection": {{ "song_name": 1, "artist_name": 1, "genres": 1, "language_code": 1, "_id": 0 }},
   "sort": {{ "first_seen": -1 }},
   "limit": 10
@@ -590,11 +590,17 @@ User: "Find songs that are longer than 3 minutes and have high language probabil
 
 User: "Get all songs with RKT genre that are still being processed"
 {{
-  "filter": {{ "genres": "RKT", "TREND_STATUS": "UNPROCESSED" }},
+  "filter": {{ "genres": "rkt", "TREND_STATUS": "UNPROCESSED" }},
   "projection": {{ "song_name": 1, "artist_name": 1, "genres": 1, "TREND_STATUS": 1, "_id": 0 }},
   "sort": {{ "first_seen": -1 }},
   "limit": 10
 }}
+
+Notes: 
+
+-genres always are lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
+-when user says "find me a trending song", it doesn't mena that the TREND_STATUS is PROCESSED - but that the song if in charts. 
+-country names always start with a capital letter: Brazil, Argentina, etc. no short forms. United States, United Kingdom, etc.
 
 User: "{natural_language_query}"
 
@@ -689,11 +695,11 @@ class MongoChatbot:
             "artist_name": "string",
             "charts": {
                 "country_code_example": [{
-                    "timestamp": "string (date)",
+                    "timestamp": "string (date) - YYYY-MM-DD",
                     "rank": "number"
                 }]
             },
-            "first_seen": "string (date)",
+            "first_seen": "string (date) - YYYY-MM-DD",
             "song_name": "string",
             "sound_link": "string (URL)",
             "genres": ["string"],
@@ -1558,14 +1564,15 @@ Given a user's search comment and previous conversation context, determine what 
 {context_section}
 
 Available fields in the database:
-- genres: Array of strings (e.g., ["Latin", "Pop", "RKT"])
+- genres: lowercase, Array of strings (e.g., ["latin", "pop", "rkt"])
 - charts: Object with country codes as keys (e.g., "Germany", "Brazil", "Argentina")
   Each country chart contains an array of objects: [{{"timestamp": "2025-07-08", "rank": 2}}, ...]
 - language_code: String (e.g., "spa", "eng", "por")
 - language_probability: Number (0-1)
 - audio_metadata.duration: Number (in seconds)
 - TREND_STATUS: String (e.g., "PROCESSED", "UNPROCESSED")<- songs which have a consistent trend with videos, don't use if user asks for "trending"
--country names are always full names like "United States" or "United Kingdom"
+- country names are always full names like "United States" or "United Kingdom" or "United Arab Emirates"
+- genres are always lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
 
 User comment: "{search_comment}"
 
