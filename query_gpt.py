@@ -1644,13 +1644,7 @@ Return a JSON object with the following structure:
     "description": "Brief description of what this search is looking for"
 }}
 
-Examples:
-- "in Germany" → {{"filters": {{"charts.Germany": {{"$exists": true}}}}, "limit": 10, "description": "Songs that charted in Germany"}}
-- "trending in Germany in July" → {{"filters": {{"charts.Germany": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-07-01", "$lt": "2025-08-01"}}}}}}}}, "limit": 10, "description": "Songs trending in Germany during July 2025"}}
-- "popular in Brazil in March" → {{"filters": {{"charts.Brazil": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-03-01", "$lt": "2025-04-01"}}}}}}}}, "limit": 15, "description": "Songs popular in Brazil during March 2025"}}
-- "Latin songs" → {{"filters": {{"genres": "Latin"}}, "limit": 10, "description": "Latin genre songs"}}
-- "Spanish lyrics" → {{"filters": {{"language_code": "spa"}}, "limit": 10, "description": "Songs with Spanish lyrics"}}
-- "songs trending in Argentina last month" → {{"filters": {{"charts.Argentina": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-06-01", "$lt": "2025-07-01"}}}}}}}}, "limit": 10, "description": "Songs trending in Argentina during June 2025"}}
+IMPORTANT: For date-based chart queries, use Aggregation Pipeline as described in the following example:
 -User: "give me all jazz songs which trended in july" <- important point, since dates are in charts.Country we need to temporarily convert charts to and array. 
 if user asks for dates - we first apply any of the other filters he was asking for, then transform charts and filter by date: 
 {{
@@ -1687,6 +1681,12 @@ if user asks for dates - we first apply any of the other filters he was asking f
   "limit": 10
 }}
 
+Examples:
+- "in Germany" → {{"filters": {{"charts.Germany": {{"$exists": true}}}}, "limit": 10, "description": "Songs that charted in Germany"}}
+- "trending in Germany in July" → {{"filters": {{"charts.Germany": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-07-01", "$lt": "2025-08-01"}}}}}}}}, "limit": 10, "description": "Songs trending in Germany during July 2025"}}
+- "popular in Brazil in March" → {{"filters": {{"charts.Brazil": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-03-01", "$lt": "2025-04-01"}}}}}}}}, "limit": 15, "description": "Songs popular in Brazil during March 2025"}}
+- "Latin songs" → {{"filters": {{"genres": "Latin"}}, "limit": 10, "description": "Latin genre songs"}}
+- "Spanish lyrics" → {{"filters": {{"language_code": "spa"}}, "limit": 10, "description": "Songs with Spanish lyrics"}}
 User: "Find me songs which were popular in the last week"
 {{
   "pipeline": [
