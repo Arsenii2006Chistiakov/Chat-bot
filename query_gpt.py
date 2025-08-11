@@ -1650,10 +1650,78 @@ Examples:
 - "popular in Brazil in March" → {{"filters": {{"charts.Brazil": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-03-01", "$lt": "2025-04-01"}}}}}}}}, "limit": 15, "description": "Songs popular in Brazil during March 2025"}}
 - "Latin songs" → {{"filters": {{"genres": "Latin"}}, "limit": 10, "description": "Latin genre songs"}}
 - "Spanish lyrics" → {{"filters": {{"language_code": "spa"}}, "limit": 10, "description": "Songs with Spanish lyrics"}}
-- "long songs" → {{"filters": {{"audio_metadata.duration": {{"$gt": 180}}}}, "limit": 10, "description": "Songs longer than 3 minutes"}}
 - "songs trending in Argentina last month" → {{"filters": {{"charts.Argentina": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-06-01", "$lt": "2025-07-01"}}}}}}}}, "limit": 10, "description": "Songs trending in Argentina during June 2025"}}
+-User: "give me all jazz songs which trended in july" <- important point, since dates are in charts.Country we need to temporarily convert charts to and array. 
+if user asks for dates - we first apply any of the other filters he was asking for, then transform charts and filter by date: 
+{{
+  "pipeline": [
+    {{
+      "$match": {{
+        "genres": "jazz"
+      }}
+    }},
+    {{
+      "$addFields": {{
+        "charts_array": {{ "$objectToArray": "$charts" }}
+      }}
+    }},
+    {{
+      "$match": {{
+        "charts_array.v": {{
+          "$elemMatch": {{
+            "timestamp": {{
+              "$gte": "2025-08-01",
+              "$lt": "2025-08-08"
+            }}
+          }}
+        }}
+      }}
+    }}
+  ],
+  "projection": {{ 
+    "song_name": 1, 
+    "artist_name": 1, 
+    "charts": 1,
+    "_id": 0 
+  }},
+  "limit": 10
+}}
 
-IMPORTANT: For date-based chart queries, use $elemMatch to find chart entries within the specified date range. The timestamp format is "YYYY-MM-DD".
+User: "Find me songs which were popular in the last week"
+{{
+  "pipeline": [
+    {{
+      "$addFields": {{
+        "charts_array": {{ "$objectToArray": "$charts" }}
+      }}
+    }},
+    {{
+      "$match": {{
+        "charts_array.v": {{
+          "$elemMatch": {{
+            "timestamp": {{
+              "$gte": "2025-08-04"
+            }}
+          }}
+        }}
+      }}
+    }},
+    {{
+      "$sort": {{
+        "first_seen": -1
+      }}
+    }}
+  ],
+  "projection": {{
+    "song_name": 1,
+    "artist_name": 1,
+    "first_seen": 1,
+    "charts": 1,
+    "_id": 0
+  }},
+  "limit": 10
+}}
+
 
 Provide only the JSON output. Do not include any other text or explanation.
 """
