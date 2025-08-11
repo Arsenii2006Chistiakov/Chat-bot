@@ -1632,11 +1632,8 @@ Available fields in the database:
 - last_seen: Date (e.g., "2025-08-08")
 - language_code: String (e.g., "spa", "eng", "por")
 - language_probability: Number (0-1)
-- audio_metadata.duration: Number (in seconds)
-- TREND_STATUS: String (e.g., "PROCESSED", "UNPROCESSED")<- songs which have a consistent trend with videos, don't use if user asks for "trending"
-- country names are always full names like "United States" or "United Kingdom" or "United Arab Emirates"
-- genres are always lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
-- only set TREND_STATUS to "PROCESSED" if user asks for a song with a distinct video trend (e.g "find me a song with a dance trend related to it", "find me song wiht a meme trend")
+
+
 User comment: "{search_comment}"
 
 Return a JSON object with the following structure:
@@ -1646,9 +1643,15 @@ Return a JSON object with the following structure:
     "description": "Brief description of what this search is looking for"
 }}
 
+IMPORTANT
+- TREND_STATUS: String (e.g., "PROCESSED", "UNPROCESSED")<- songs which have a consistent trend with videos, don't use if user asks for "trending"
+- country names are always full names like "United States" or "United Kingdom" or "United Arab Emirates"
+- genres are always lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
+- only set TREND_STATUS to "PROCESSED" if user asks for a song with a distinct video trend (e.g "find me a song with a dance trend related to it", "find me song wiht a meme trend")
+- only look for country within charts, no "country" field available
 Examples:
 - "in Germany" → {{"filters": {{"charts.Germany": {{"$exists": true}}}}, "limit": 10, "description": "Songs that charted in Germany"}}
-- "trending in Germany in July" → {{"filters": {{"country": "Germany", "first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-01"}}}}, "limit": 10, "description": "Songs trending in Germany during July 2025 using first_seen and last_seen"}}
+- "trending in Germany in July" → {{"filters": {{"charts.Germany": {{"$exists":true}}, "first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-01"}}}}, "limit": 10, "description": "Songs trending in Germany during July 2025 using first_seen and last_seen"}}
 - "popular in Brazil in March" → {{"filters": {{"charts.Brazil": {{"$exists": true}}, "first_seen": {{"$lte": "2025-04-01"}}, "last_seen": {{"$gte": "2025-03-01"}}}}, "limit": 15, "description": "Songs popular in Brazil during March 2025 using first_seen and last_seen"}}
 - "Latin songs" → {{"filters": {{"genres": "latin"}}, "limit": 10, "description": "Latin genre songs"}}
 - "Spanish lyrics" → {{"filters": {{"language_code": "spa"}}, "limit": 10, "description": "Songs with Spanish lyrics"}}
