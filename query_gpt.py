@@ -577,22 +577,82 @@ User: "Show me all Latin songs with Spanish lyrics"
   "limit": 10
 }}
 
-User: "Find songs that are longer than 3 minutes and have high language probability"
+User: "Get all songs with RKT"
 {{
-  "filter": {{ 
-    "audio_metadata.duration": {{ "$gt": 180 }},
-    "language_probability": {{ "$gt": 0.8 }}
-  }},
-  "projection": {{ "song_name": 1, "artist_name": 1, "audio_metadata.duration": 1, "language_probability": 1, "_id": 0 }},
-  "sort": {{ "language_probability": -1 }},
+  "filter": {{ "genres": "rkt"}},
+  "projection": {{ "song_name": 1, "artist_name": 1, "genres": 1, "TREND_STATUS": 1, "_id": 0 }},
+  "sort": {{ "first_seen": -1 }},
   "limit": 10
 }}
 
-User: "Get all songs with RKT genre that are still being processed"
+User: "give me all jazz songs which trended in july" <- important point, since dates are in charts.Country we need to temporarily convert charts to and array. 
+if user asks for dates - we first apply any of the other filters he was asking for, then transform charts and filter by date: 
 {{
-  "filter": {{ "genres": "rkt", "TREND_STATUS": "UNPROCESSED" }},
-  "projection": {{ "song_name": 1, "artist_name": 1, "genres": 1, "TREND_STATUS": 1, "_id": 0 }},
-  "sort": {{ "first_seen": -1 }},
+  "pipeline": [
+    {{
+      "$match": {{
+        "genres": "jazz"
+      }}
+    }},
+    {{
+      "$addFields": {{
+        "charts_array": {{ "$objectToArray": "$charts" }}
+      }}
+    }},
+    {{
+      "$match": {{
+        "charts_array.v": {{
+          "$elemMatch": {{
+            "timestamp": {{
+              "$gte": "2025-08-01",
+              "$lt": "2025-08-08"
+            }}
+          }}
+        }}
+      }}
+    }}
+  ],
+  "projection": {{ 
+    "song_name": 1, 
+    "artist_name": 1, 
+    "charts": 1,
+    "_id": 0 
+  }},
+  "limit": 10
+}}
+
+User: "Find me songs which were popular in the last week"
+{{
+  "pipeline": [
+    {{
+      "$addFields": {{
+        "charts_array": {{ "$objectToArray": "$charts" }}
+      }}
+    }},
+    {{
+      "$match": {{
+        "charts_array.v": {{
+          "$elemMatch": {{
+            "timestamp": {{
+              "$gte": "2025-08-04"
+            }}
+          }}
+        }}
+      }}
+    }},
+    {{
+      "$sort": {{
+        "first_seen": -1
+      }}
+    }}
+  ],
+  "projection": {{
+    "song_name": 1,
+    "artist_name": 1,
+    "first_seen": 1,
+    "charts": 1,
+    "_id": 0
+  }},
   "limit": 10
 }}
 
@@ -1835,6 +1895,8 @@ Provide only the JSON output. Do not include any other text or explanation.
                 filters = search_params.get("filters", {})
                 limit = search_params.get("limit", 10)
                 description = search_params.get("description", "Custom search")
+                custom_pipeline = search_params.get("pipeline")
+                custom_projection = search_params.get("projection")
                 
                 console.print(Panel(
                     f"[bold green]✅ Search Parameters Determined[/bold green]\n\n"
@@ -1843,6 +1905,33 @@ Provide only the JSON output. Do not include any other text or explanation.
                     f"Limit: {limit} results",
                     title="Parameters", border_style="green"
                 ))
+
+                # If LLM returned a custom aggregation pipeline and we're not doing a vector query,
+                # execute the provided pipeline directly.
+                if custom_pipeline and query_vector is None:
+                    if not isinstance(custom_pipeline, list):
+                        console.print(Panel(
+                            f"[red]Provided pipeline is not a list. Ignoring custom pipeline.[/red]",
+                            title="Pipeline Error", border_style="red"
+                        ))
+                    else:
+                        final_pipeline = list(custom_pipeline)
+                        # Append projection if provided and no $project stage exists
+                        if isinstance(custom_projection, dict) and not any("$project" in stage for stage in final_pipeline if isinstance(stage, dict)):
+                            final_pipeline.append({"$project": custom_projection})
+                        # Append limit if no $limit exists and limit provided
+                        if isinstance(limit, int) and not any("$limit" in stage for stage in final_pipeline if isinstance(stage, dict)):
+                            final_pipeline.append({"$limit": int(limit)})
+
+                        console.print(Panel(
+                            f"[bold green]🧩 Executing Custom Pipeline Search[/bold green]\n"
+                            f"Description: {description}",
+                            title="Custom Pipeline", border_style="green"
+                        ))
+
+                        results = list(self.collection.aggregate(final_pipeline))
+                        self.proposed_results = results
+                        return results
             else:
                 filters = {}
                 description = "Simple music similarity search"
