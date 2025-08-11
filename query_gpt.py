@@ -1611,12 +1611,18 @@ Respond naturally as if you're having a conversation with the user.
         if include_chat_history:
             chat_context = self._get_chat_history_context(include_categories=["search"])
             if chat_context.strip():
+                print(f"[DEBUG] _get_search_parameters_from_llm: chat_context found, length={len(chat_context)}")
+                print(f"[DEBUG] _get_search_parameters_from_llm: chat_context content=\n{chat_context}")
                 context_section = f"""
 PREVIOUS SEARCH CONTEXT:
 {chat_context}
 
 ---
 """
+            else:
+                print(f"[DEBUG] _get_search_parameters_from_llm: no chat_context found or empty")
+        else:
+            print(f"[DEBUG] _get_search_parameters_from_llm: include_chat_history=False, skipping context")
 
         prompt = f"""
 You are an expert at converting natural language search requests into MongoDB query parameters.
@@ -1905,7 +1911,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 # ))
                 
                 # Get search parameters from LLM
-                search_params = await self._get_search_parameters_from_llm(prompt)
+                search_params = await self._get_search_parameters_from_llm(prompt) # !!!!!!!!!
                 filters = search_params.get("filters", {})
                 limit = search_params.get("limit", 10)
                 description = search_params.get("description", "Custom search")
