@@ -259,6 +259,14 @@ async def chat(req: ChatRequest):
         )
 
     if category == "search":
+        # Print the context section used by LLM (outside suppression)
+        try:
+            previous_search_context = chatbot._get_chat_history_context(include_categories=["search"])  # type: ignore[attr-defined]
+            if previous_search_context and previous_search_context.strip():
+                print("[CONTEXT] previous_search_context=\n" + previous_search_context)
+        except Exception:
+            pass
+
         # Deduce search plan within suppressed context
         with exec_context():
             embedding_decision = await chatbot._determine_search_embeddings(message)
