@@ -1598,72 +1598,71 @@ Respond naturally as if you're having a conversation with the user.
 
     async def _get_search_parameters_from_llm(self, search_comment: str, include_chat_history: bool = True) -> Dict[str, Any]:
         """
-        Use ChatGPT to deduce additional search parameters from user comment.
+        Use ChatGPT to deduce additional search parameters from the user's comment.
+        If include_chat_history=True, appends new filters to previous search filters.
+        If include_chat_history=False, returns fresh filters only.
+        
         Args:
             search_comment (str): User's search comment (e.g., "in Germany", "Latin songs", etc.)
-            include_chat_history (bool): Whether to include chat history for context
+            include_chat_history (bool): Whether to append to previous search filters
             
         Returns:
             Dict[str, Any]: Search parameters including filters and limit
         """
-        # Get chat history context for search queries
-        context_section = ""
+        # Get previous search filters if we're including history
+        previous_filters = {}
         if include_chat_history:
-            chat_context = self._get_chat_history_context(include_categories=["search"])
-            if chat_context.strip():
-                print(f"[DEBUG] _get_search_parameters_from_llm: chat_context found, length={len(chat_context)}")
-                print(f"[DEBUG] _get_search_parameters_from_llm: chat_context content=\n{chat_context}")
-                context_section = f"""
-PREVIOUS SEARCH CONTEXT:
-{chat_context}
-
----
-"""
+            # Get the last search from chat history
+            search_exchanges = [ex for ex in self.chat_history if ex.get("category") == "search"]
+            if search_exchanges:
+                # Try to extract filters from the last search response
+                last_search = search_exchanges[-1]
+                last_response = last_search.get("assistant", "")
+                
+                # Look for filters in the response (this is a simple heuristic)
+                if "filters:" in last_response.lower() or "mongodb filters:" in last_response.lower():
+                    print(f"[DEBUG] _get_search_parameters_from_llm: found previous search, response length={len(last_response)}")
+                    print(f"[DEBUG] _get_search_parameters_from_llm: previous response preview={last_response[:200]}...")
+                else:
+                    print(f"[DEBUG] _get_search_parameters_from_llm: no previous filters found in response")
             else:
-                print(f"[DEBUG] _get_search_parameters_from_llm: no chat_context found or empty")
-        else:
-            print(f"[DEBUG] _get_search_parameters_from_llm: include_chat_history=False, skipping context")
+                print(f"[DEBUG] _get_search_parameters_from_llm: no previous search exchanges found")
 
+        # Build prompt for new filters only (no conversation context)
         prompt = f"""
 You are an expert at converting natural language search requests into MongoDB query parameters.
-Given a user's search comment and previous conversation context, determine what additional filters should be applied to a music vector search.
--usually use all the previous search fields: forexample  1) find songs trending in Spain 2) find the rap ones -> spain + rap
-
-AN EXAMPLE:
-User: look for phonk songs around the world
-Assistant: Found 10 results....
-New user message: find the ones which were trending in Spain
--> the previous search fields should be used: genres:phonk, charts.Spain:{{$exists:true}}
-
-here is the previous search context:
-{context_section}
-
+Given a user's search comment, determine what additional filters should be applied to a music search.
 
 Available fields in the database:
-- genres: lowercase, Array of strings (e.g., ["latin", "pop", "rkt"])
-- charts: Object with country codes as keys (e.g., "Germany", "Brazil", "Argentina")
-  Each country chart contains an array of objects: [{{"timestamp": "2025-07-08", "rank": 2}}, ...]
-- first_seen: Date (e.g., "2025-07-08")
-- last_seen: Date (e.g., "2025-08-08")
-- language_code: String (e.g., "spa", "eng", "por")
-- language_probability: Number (0-1)
+- genres: lowercase, Array of strings (e.g., ["latin", "pop", "rkt"])  
+- first_seen: String date in ISO format "YYYY-MM-DD" (first day the song appeared)  
+- last_seen: String date in ISO format "YYYY-MM-DD" (last day the song was seen)  
+- charts: Object with country names as keys (e.g., "Germany", "Brazil") → optional for country scoping  
+- language_code: String (e.g., "spa", "eng", "por")  
+- language_probability: Number (0-1)  
+- audio_metadata.duration: Number (in seconds)  
+- TREND_STATUS: String (e.g., "PROCESSED", "UNPROCESSED")
 
+CRITICAL time logic for phrases like "trending in <period>":
+- Interpret the period into a start_date and end_date (inclusive).
+- A song is considered trending during the period if its interval [first_seen, last_seen] overlaps the period, i.e.:  
+  first_seen <= end_date AND last_seen >= start_date
+- Use filters:  
+  {{"first_seen": {{"$lte": "<end_date>"}}, "last_seen": {{"$gte": "<start_date>"}}}}
+- If a country is mentioned (e.g., Germany), also include the existence of that chart key:  
+  {{"charts.Germany": {{"$exists": true}}}}
+- If month is given without a year, assume the current year. Use month boundaries (e.g., May → May 1 to May 31).
+- Genres must be lowercase.
 
 User comment: "{search_comment}"
 
 Return a JSON object with the following structure:
 {{
-    "filters": {{}},  // MongoDB filters to apply
+    "filters": {{}},  // MongoDB filters to apply (ONLY the NEW filters from this comment)
     "limit": 10,     // Number of results to return
     "description": "Brief description of what this search is looking for"
 }}
 
-IMPORTANT
-- TREND_STATUS: String (e.g., "PROCESSED", "UNPROCESSED")<- songs which have a consistent trend with videos, don't use if user asks for "trending"
-- country names are always full names like "United States" or "United Kingdom" or "United Arab Emirates"
-- genres are always lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
-- only set TREND_STATUS to "PROCESSED" if user asks for a song with a distinct video trend (e.g "find me a song with a dance trend related to it", "find me song wiht a meme trend")
-- only look for country within charts, no "country" field available
 Examples:
 - "in Germany" → {{"filters": {{"charts.Germany": {{"$exists": true}}}}, "limit": 10, "description": "Songs that charted in Germany"}}
 - "trending in Germany in July" → {{"filters": {{"charts.Germany": {{"$exists":true}}, "first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-01"}}}}, "limit": 10, "description": "Songs trending in Germany during July 2025 using first_seen and last_seen"}}
@@ -1673,9 +1672,11 @@ Examples:
 - "songs trending on the first week of August" → {{"filters": {{"first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-25"}}}}, "limit": 10, "description": "Songs trending on the first week of August using first_seen and last_seen"}}
 - "songs trenidng in Germany/Brazil/Argentina (or)" → {{"filters": {{"$or": [{{"charts.Germany": {{"$exists": true}}}}, {{"charts.Brazil": {{"$exists": true}}}}, {{"charts.Argentina": {{"$exists": true}}}}]}}, "limit": 10, "description": "Songs trending in Germany/Brazil/Argentina"}}
 
-
-
-Provide only the JSON output. Do not include any other text or explanation.
+IMPORTANT:
+- Use the overlap logic with first_seen/last_seen for all time-based trending queries.
+- Use date strings in ISO format "YYYY-MM-DD".
+- Provide only the JSON output. Do not include any other text or explanation.
+- Return ONLY the NEW filters from this specific comment, not combined filters.
 """
         
         import openai
@@ -1701,7 +1702,26 @@ Provide only the JSON output. Do not include any other text or explanation.
                 print(f"[DEBUG] LLM(_get_search_parameters_from_llm) raw=\n{text}")
             except Exception:
                 pass
-            return json.loads(text)
+            
+            # Parse the new filters
+            new_search_params = json.loads(text)
+            new_filters = new_search_params.get("filters", {})
+            
+            # If including history, merge with previous filters
+            if include_chat_history and previous_filters:
+                print(f"[DEBUG] _get_search_parameters_from_llm: merging new filters {new_filters} with previous filters {previous_filters}")
+                # Merge filters (new filters take precedence for overlapping keys)
+                merged_filters = {**previous_filters, **new_filters}
+                print(f"[DEBUG] _get_search_parameters_from_llm: merged filters result {merged_filters}")
+                
+                return {
+                    "filters": merged_filters,
+                    "limit": new_search_params.get("limit", 10),
+                    "description": f"Combined search: {new_search_params.get('description', 'music search')}"
+                }
+            else:
+                print(f"[DEBUG] _get_search_parameters_from_llm: returning fresh filters only {new_filters}")
+                return new_search_params
             
         except Exception as e:
             console.print(f"[red]Error parsing search parameters: {e}[/red]")
