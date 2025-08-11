@@ -1622,7 +1622,13 @@ PREVIOUS SEARCH CONTEXT:
 You are an expert at converting natural language search requests into MongoDB query parameters.
 Given a user's search comment and previous conversation context, determine what additional filters should be applied to a music vector search.
 -usually use all the previous search fields: forexample  1) find songs trending in Spain 2) find the rap ones -> spain + rap
--if user explicilty says that he wants to start a fresh (e.g. now let's look into something else) -> don't use the previous search fields
+
+AN EXAMPLE:
+User: look for phonk songs around the world
+Assistant: Found 10 results....
+New user message: find the ones which were trending in Spain
+-> the previous search fields should be used: genres:phonk, charts.Spain:{{$exists:true}}
+
 here is the previous search context:
 {context_section}
 
