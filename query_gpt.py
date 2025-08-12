@@ -585,14 +585,7 @@ User: "Get all songs with RKT"
   "limit": 10
 }}
 
-IMPORTANT: if user asks for songs with a distinct trend you query for TREND_STATUS = "EXISTS"
-user: find me latest video trends in rap. 
-{{
-  "filter": {{ "TREND_STATUS": "EXISTS", "genres": "rap" }},
-  "projection": {{ "song_name": 1, "artist_name": 1, "TREND_STATUS": 1, "_id": 0 }},
-  "sort": {{ "first_seen": -1 }},
-  "limit": 10
-}}
+
 
 
 
@@ -1670,7 +1663,7 @@ Return a JSON object with the following structure:
 }}
 
 IMPORTANT
-- TREND_STATUS: String (e.g., "PROCESSED", "UNPROCESSED")<- songs which have a consistent trend with videos, don't use if user asks for "trending"
+- TREND_STATUS: String (e.g., "EXISTS", "UNPROCESSED")<- songs which have a consistent trend with videos, don't use if user asks for "trending"
 - country names are always full names like "United States" or "United Kingdom" or "United Arab Emirates"
 - genres are always lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
 - only set TREND_STATUS to "PROCESSED" if user asks for a song with a distinct video trend (e.g "find me a song with a dance trend related to it", "find me song wiht a meme trend")
@@ -1683,6 +1676,8 @@ Examples:
 - "Spanish lyrics" → {{"filters": {{"language_code": "spa"}}, "limit": 10, "description": "Songs with Spanish lyrics"}}
 - "songs trending on the first week of August" → {{"filters": {{"first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-25"}}}}, "limit": 10, "description": "Songs trending on the first week of August using first_seen and last_seen"}}
 - "songs trenidng in Germany/Brazil/Argentina (or)" → {{"filters": {{"$or": [{{"charts.Germany": {{"$exists": true}}}}, {{"charts.Brazil": {{"$exists": true}}}}, {{"charts.Argentina": {{"$exists": true}}}}]}}, "limit": 10, "description": "Songs trending in Germany/Brazil/Argentina"}}
+IMPORTANT: if user asks for songs with a distinct trend you query for TREND_STATUS = "EXISTS"
+user: find me latest video trends in rap.  {{ "TREND_STATUS": "EXISTS", "genres": "rap" }}
 
 
 
