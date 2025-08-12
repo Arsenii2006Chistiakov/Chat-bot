@@ -868,11 +868,14 @@ class MongoChatbot:
         """
         Handle the /loadtext command by delegating text embedding to embeddings_api.
         Usage examples:
-          /loadtext --text "some lyrics here" [--song_id XYZ]
-          /loadtext --file /path/to/lyrics.txt [--song_id XYZ]
+          /loadtext --text "some lyrics here" [--lang eng] [--song_id XYZ] - Embed lyrics text and optionally save to DB
+          /loadtext --file /path/to/lyrics.txt [--lang spa] [--song_id XYZ] - Embed lyrics from a file
+        If --song_id is provided, will also save the mean embedding to MongoDB under `text_embedding`.
+        Always keeps the current mean text embedding in memory for vector search.
         """
         # Default values
         lyrics_text: str | None = None
+        language_code: Optional[str] = None
         song_id: str | None = None
         file_path: str | None = None
 
@@ -882,10 +885,15 @@ class MongoChatbot:
         while i < len(parts):
             token = parts[i]
             if token == "--text" and i + 1 < len(parts):
+                # Collect the rest as text
                 lyrics_text = " ".join(parts[i + 1:])
                 break
             elif token == "--file" and i + 1 < len(parts):
                 file_path = parts[i + 1]
+                i += 2
+                continue
+            elif token == "--lang" and i + 1 < len(parts):
+                language_code = parts[i + 1]
                 i += 2
                 continue
             elif token == "--song_id" and i + 1 < len(parts):
@@ -918,57 +926,33 @@ class MongoChatbot:
             ))
             return
 
-        try:
-            api_base = os.getenv("EMBEDDINGS_API_URL", "http://localhost:8001")
-            url = f"{api_base}/generate-embeddings"
-            payload = {"text": lyrics_text, "user_id": os.getenv("USER_ID", "cli_user")}
-
-            resp = requests.post(url, json=payload, timeout=120)
-            if resp.status_code != 200:
-                raise RuntimeError(f"Embeddings API error {resp.status_code}: {resp.text}")
-            data = resp.json()
-            if not data.get("success"):
-                raise RuntimeError(data.get("message", "Failed to generate text embedding"))
-
-            embeddings = data.get("embeddings", {})
-            vec = embeddings.get("text_embedding") or embeddings.get("lyrics_embedding")
-            if not vec:
-                raise RuntimeError("Embeddings API did not return text embedding")
-
-            # Keep in memory for search
-            self.current_text_embedding = np.array(vec, dtype=np.float32)
-
-            # Optionally save to MongoDB if song_id provided
-            saved_msg = ""
-            if song_id:
-                try:
-                    result = self.collection.update_one(
-                        {"song_id": song_id},
-                        {"$set": {
-                            "text_embedding": vec,
-                            "embedding_dim": int(len(vec)),
-                            "embedding_processed_at": datetime.now().isoformat(),
-                        }}
-                    )
-                    if result.matched_count > 0:
-                        saved_msg = f"\nSaved to MongoDB for song_id: {song_id}"
-                    else:
-                        saved_msg = f"\n[Warning] No document updated for song_id: {song_id}"
-                except Exception as e:
-                    saved_msg = f"\n[Warning] Failed to save to MongoDB: {e}"
-
+        embeddings_doc = self._process_lyrics_text(lyrics_text, language_code)
+        if not embeddings_doc:
             console.print(Panel(
-                f"[bold green]✅ Text Loaded via API & Embedded[/bold green]\n\n"
-                f"Embedding dim: {len(vec)}\n"
-                f"You can now run /search (uses the loaded text embedding)."
-                f"{saved_msg}",
-                title="Success", border_style="green"
-            ))
-        except Exception as e:
-            console.print(Panel(
-                f"[red]Could not generate embeddings via API: {e}[/red]",
+                "[red]Could not generate embeddings for the provided lyrics.[/red]",
                 title="Embedding Error", border_style="red"
             ))
+            return
+
+        # Keep in memory for search
+        self.current_text_embedding = np.array(embeddings_doc["mean_embedding"], dtype=np.float32)
+
+        saved_msg = ""
+        if song_id:
+            if self._save_text_embedding_to_mongodb(song_id, embeddings_doc):
+                saved_msg = f"\nSaved to MongoDB for song_id: {song_id}"
+            else:
+                saved_msg = f"\n[Warning] No document updated for song_id: {song_id}"
+
+        console.print(Panel(
+            f"[bold green]✅ Text Loaded & Embedded[/bold green]\n\n"
+            f"Sentences: {embeddings_doc['num_sentences']}\n"
+            f"Embedding dim: {embeddings_doc['embedding_dim']}\n"
+            f"Language: {embeddings_doc['language_code']}\n"
+            f"You can now run /search (uses the loaded text embedding)."
+            f"{saved_msg}",
+            title="Success", border_style="green"
+        ))
 
     def _add_to_chat_history(self, user_message: str, assistant_response: str, category: str = "general"):
         """
@@ -1082,7 +1066,7 @@ class MongoChatbot:
             trend_status = selected_result.get("TREND_STATUS")
             
             # Check if the song has trend status
-            if trend_status != "PROCESSED":
+            if trend_status != "EXISTS":
                 console.print("[red]Can't add: Selected song doesn't have trend information.[/red]")
                 return
             
