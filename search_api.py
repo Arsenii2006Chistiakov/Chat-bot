@@ -176,8 +176,35 @@ async def search(req: SearchRequest):
         # Add search to chat history
         chatbot._add_to_chat_history(message, f"Found {len(results)} results.", "search")
 
+        # Enrich results with trend information if TREND_STATUS is "EXISTS"
+        enriched_results = []
+        for result in (results or []):
+            enriched_result = {
+                "song_name": result.get("song_name"),
+                "artist_name": result.get("artist_name"),
+                "song_id": result.get("song_id"),
+                "genres": result.get("genres", []),
+                "TREND_STATUS": result.get("TREND_STATUS")
+            }
+            
+            # If TREND_STATUS is "EXISTS", fetch trend_description from TOP_TIKTOK_TRENDS
+            if result.get("TREND_STATUS") == "EXISTS":
+                try:
+                    trend_doc = chatbot.trends_collection.find_one({"song_id": result.get("song_id")})
+                    if trend_doc:
+                        enriched_result["trend_description"] = trend_doc.get("trend_description", "")
+                    else:
+                        enriched_result["trend_description"] = ""
+                except Exception as e:
+                    print(f"[WARNING] Failed to fetch trend description for song_id {result.get('song_id')}: {e}")
+                    enriched_result["trend_description"] = ""
+            else:
+                enriched_result["trend_description"] = ""
+            
+            enriched_results.append(enriched_result)
+
         # Sanitize results for JSON response
-        sanitized_results = [_sanitize(doc) for doc in (results or [])]
+        sanitized_results = [_sanitize(doc) for doc in enriched_results]
 
         # Build search info
         search_info = {
