@@ -1468,10 +1468,11 @@ You are an input categorizer for a music database chatbot. Categorize the user's
    Examples: "help", "what can you do", "how does this work", "show me the commands"
 
 2. "talk" - User is making casual conversation, greetings, or general chat
-   Examples: "hello", "how are you", "thanks", "goodbye", "nice to meet you"
+   Examples: "hello", "how are you", "thanks", "goodbye", "nice to meet you" <- no if Hi, I am looking for ...
 
 3. "search" - User wants to search the database with natural language queries or find similar songs/lyrics
    Examples: "find songs by artist X", "show me Latin songs", "songs from Brazil", "popular songs", "find similar songs", "match this song", "what songs are like this", "find similar lyrics",
+   "Hi, find me latest video trends in rap" <- looking for trend, "Show me culturally distinct video trends in Germany" <- looking for trend in Germany, "find me latest video trends in rap in Germany in June" <- looking for trend in Germany in June,
    "now make sure the song is in Japan" <- extending the query, "now filter the songs whcih have a genger rap" <- extending the query, 
 
 4. "analysis" - User wants deep analysis, explanations, or reasoning about trends, songs, genres, or cultural phenomena
