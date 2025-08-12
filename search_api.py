@@ -60,6 +60,21 @@ class SearchRequest(BaseModel):
     user_id: str = Field(..., description="User identifier")
 
 
+class TrendInfoRequest(BaseModel):
+    song_id: str = Field(..., description="Song ID to get trend information for")
+
+
+class TrendInfoResponse(BaseModel):
+    success: bool
+    message: str
+    song_id: str
+    trend_description: Optional[str] = None
+    detailed_description: Optional[str] = None
+    trend_explanation: Optional[str] = None
+    video_gcs_uris: List[str] = []
+    video_count: int = 0
+
+
 class SearchResponse(BaseModel):
     success: bool
     message: str
@@ -122,6 +137,7 @@ async def root() -> Dict[str, Any]:
         "time": datetime.now().isoformat(),
         "endpoints": {
             "search": "/search",
+            "trend_info": "/trend_info",
             "health": "/health",
         },
     }
@@ -232,6 +248,102 @@ async def search(req: SearchRequest):
         )
 
 
+@app.post("/trend_info", response_model=TrendInfoResponse)
+async def get_trend_info(req: TrendInfoRequest):
+    """Get comprehensive trend information for a specific song."""
+    song_id = req.song_id.strip()
+    if not song_id:
+        raise HTTPException(status_code=400, detail="Song ID must not be empty")
+
+    print(f"[DEBUG] /trend_info song_id={song_id}")
+
+    try:
+        # Get a search session to access the database
+        chatbot = await get_search_session("trend_info_user")
+        
+        # First check if the song exists and has TREND_STATUS = "EXISTS"
+        song_doc = chatbot.collection.find_one({"song_id": song_id})
+        if not song_doc:
+            return TrendInfoResponse(
+                success=False,
+                message=f"Song with ID '{song_id}' not found",
+                song_id=song_id
+            )
+        
+        trend_status = song_doc.get("TREND_STATUS")
+        if trend_status != "EXISTS":
+            return TrendInfoResponse(
+                success=False,
+                message=f"Song '{song_id}' does not have trend information (TREND_STATUS: {trend_status})",
+                song_id=song_id
+            )
+
+        # Get trend information from TOP_TIKTOK_TRENDS
+        trend_doc = chatbot.trends_collection.find_one({"song_id": song_id})
+        if not trend_doc:
+            return TrendInfoResponse(
+                success=False,
+                message=f"Trend information not found for song '{song_id}'",
+                song_id=song_id
+            )
+
+        trend_description = trend_doc.get("trend_description", "")
+        detailed_description = trend_doc.get("detailedDescription", "")
+        trend_explanation = trend_doc.get("trendExplanation", "")
+
+        # Get video IDs from Hugo_final2.clusters
+        video_ids = []
+        try:
+            clusters_collection = chatbot.db.Hugo_final2.clusters
+            cluster_doc = clusters_collection.find_one({"song_id": song_id})
+            if cluster_doc:
+                video_ids = cluster_doc.get("video_ids", [])
+                print(f"[DEBUG] Found {len(video_ids)} video IDs in clusters")
+            else:
+                print(f"[DEBUG] No cluster document found for song_id: {song_id}")
+        except Exception as e:
+            print(f"[WARNING] Failed to fetch video IDs from clusters: {e}")
+
+        # Get GCS URIs from Hugo_final2.videos
+        video_gcs_uris = []
+        if video_ids:
+            try:
+                videos_collection = chatbot.db.Hugo_final2.videos
+                for video_id in video_ids:
+                    video_doc = videos_collection.find_one({"video_id": video_id})
+                    if video_doc:
+                        gcs_uri = video_doc.get("gcs_uri")
+                        if gcs_uri:
+                            video_gcs_uris.append(gcs_uri)
+                        else:
+                            print(f"[WARNING] No gcs_uri found for video_id: {video_id}")
+                    else:
+                        print(f"[WARNING] Video document not found for video_id: {video_id}")
+                
+                print(f"[DEBUG] Retrieved {len(video_gcs_uris)} GCS URIs")
+            except Exception as e:
+                print(f"[WARNING] Failed to fetch GCS URIs from videos: {e}")
+
+        return TrendInfoResponse(
+            success=True,
+            message=f"Trend information retrieved successfully for song '{song_id}'",
+            song_id=song_id,
+            trend_description=trend_description,
+            detailed_description=detailed_description,
+            trend_explanation=trend_explanation,
+            video_gcs_uris=video_gcs_uris,
+            video_count=len(video_gcs_uris)
+        )
+
+    except Exception as e:
+        print(f"[ERROR] Trend info failed: {e}")
+        return TrendInfoResponse(
+            success=False,
+            message=f"Failed to retrieve trend information: {str(e)}",
+            song_id=song_id
+        )
+
+
 @app.delete("/user/{user_id}")
 async def remove_user(user_id: str) -> Dict[str, Any]:
     """Remove a user's search session."""
@@ -245,6 +357,10 @@ async def remove_user(user_id: str) -> Dict[str, Any]:
 if __name__ == "__main__":
     import uvicorn
     print("Starting Search API server...")
-    print("Endpoint: POST /search")
-    print("Example: curl -X POST 'http://localhost:8002/search' -H 'Content-Type: application/json' -d '{\"message\": \"find me songs trending in Brazil\", \"user_id\": \"test_user\"}'")
+    print("Endpoints:")
+    print("  POST /search")
+    print("  POST /trend_info")
+    print("\nExamples:")
+    print("  Search: curl -X POST 'http://localhost:8002/search' -H 'Content-Type: application/json' -d '{\"message\": \"find me songs trending in Brazil\", \"user_id\": \"test_user\"}'")
+    print("  Trend Info: curl -X POST 'http://localhost:8002/trend_info' -H 'Content-Type: application/json' -d '{\"song_id\": \"your_song_id_here\"}'")
     uvicorn.run("search_api:app", host="0.0.0.0", port=8002, reload=True, log_level="info")
