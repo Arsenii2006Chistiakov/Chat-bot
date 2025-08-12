@@ -1678,7 +1678,7 @@ Examples:
 - "songs trending on the first week of August" → {{"filters": {{"first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-25"}}}}, "limit": 10, "description": "Songs trending on the first week of August using first_seen and last_seen"}}
 - "songs trenidng in Germany/Brazil/Argentina (or)" → {{"filters": {{"$or": [{{"charts.Germany": {{"$exists": true}}}}, {{"charts.Brazil": {{"$exists": true}}}}, {{"charts.Argentina": {{"$exists": true}}}}]}}, "limit": 10, "description": "Songs trending in Germany/Brazil/Argentina"}}
 IMPORTANT: if user asks for songs with a distinct trend you query for TREND_STATUS = "EXISTS"
-user: finde me some distinct trends { "TREND_STATUS": "EXISTS" }
+user: finde me some distinct trends {{ "TREND_STATUS": "EXISTS" }}
 user: find me latest video trends in rap.  {{ "TREND_STATUS": "EXISTS", "genres": "rap" }}
 user: find me music tredns in Germany in June {{ "TREND_STATUS": "EXISTS", "charts.Germany": {{"$exists": true}}, "first_seen": {{"$lte": "2025-06-01"}}, "last_seen": {{"$gte": "2025-06-01"}} }}
 
