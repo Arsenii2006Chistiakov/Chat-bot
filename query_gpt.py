@@ -585,6 +585,17 @@ User: "Get all songs with RKT"
   "limit": 10
 }}
 
+IMPORTANT: if user asks for songs with a distinct trend you query for TREND_STATUS = "EXISTS"
+user: find me latest video trends in rap. 
+{{
+  "filter": {{ "TREND_STATUS": "EXISTS", "genres": "rap" }},
+  "projection": {{ "song_name": 1, "artist_name": 1, "TREND_STATUS": 1, "_id": 0 }},
+  "sort": {{ "first_seen": -1 }},
+  "limit": 10
+}}
+
+
+
 User: "give me all jazz songs which trended in july" <- important point, since dates are in charts.Country we need to temporarily convert charts to and array. 
 if user asks for dates - we first apply any of the other filters he was asking for, then transform charts and filter by date: 
 {{
@@ -1083,7 +1094,7 @@ class MongoChatbot:
                 return
             
             # Get detailed trend information from TOP_TIKTOK_TRENDS collection
-            trend_details = self.trends_collection.find_one({})  # Get the first (and likely only) trend
+            trend_details = self.trends_collection.find_one({"song_id": selected_result.get("song_id")})  # Get the first (and likely only) trend
             
             if not trend_details:
                 console.print("[red]Can't add: No trend details found in database.[/red]")
