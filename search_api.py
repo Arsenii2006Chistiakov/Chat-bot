@@ -296,14 +296,14 @@ async def get_trend_info(req: TrendInfoRequest):
         video_ids = []
         try:
             clusters_collection = chatbot.db.Hugo_final2.clusters
-            print(f"[DEBUG] Querying Hugo_final2.clusters for song_id: {song_id}")
-            cluster_doc = clusters_collection.find_one({"song_id": song_id})
+            print(f"[DEBUG] Querying Hugo_final2.clusters for sound_id: {song_id}")
+            cluster_doc = clusters_collection.find_one({"sound_id": song_id})
             if cluster_doc:
                 video_ids = cluster_doc.get("video_ids", [])
                 print(f"[DEBUG] Found cluster document: {cluster_doc}")
                 print(f"[DEBUG] Found {len(video_ids)} video IDs in clusters: {video_ids}")
             else:
-                print(f"[DEBUG] No cluster document found for song_id: {song_id}")
+                print(f"[DEBUG] No cluster document found for sound_id: {song_id}")
                 # Try to see what's in the clusters collection
                 sample_clusters = list(clusters_collection.find().limit(3))
                 print(f"[DEBUG] Sample clusters: {sample_clusters}")
