@@ -312,7 +312,7 @@ async def get_trend_info(req: TrendInfoRequest):
             try:
                 videos_collection = chatbot.db.Hugo_final2.videos
                 for video_id in video_ids:
-                    video_doc = videos_collection.find_one({"video_id": video_id})
+                    video_doc = videos_collection.find_one({"_id": video_id})
                     if video_doc:
                         gcs_uri = video_doc.get("gcs_uri")
                         if gcs_uri:
