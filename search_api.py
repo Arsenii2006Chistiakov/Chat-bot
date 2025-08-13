@@ -72,6 +72,7 @@ class TrendInfoResponse(BaseModel):
     detailed_description: Optional[str] = None
     trend_explanation: Optional[str] = None
     video_gcs_uris: List[str] = []
+    tiktok_uris: List[str] = []
     video_count: int = 0
 
 
@@ -306,6 +307,7 @@ async def get_trend_info(req: TrendInfoRequest):
 
         # Get GCS URIs from Hugo_final2.videos
         video_gcs_uris = []
+        tiktok_uris = []
         if video_ids:
             try:
                 videos_collection = chatbot.db.Hugo_final2.videos
@@ -317,12 +319,17 @@ async def get_trend_info(req: TrendInfoRequest):
                             video_gcs_uris.append(gcs_uri)
                         else:
                             print(f"[WARNING] No gcs_uri found for video_id: {video_id}")
+                        tiktok_url = video_doc.get("tiktok_url")
+                        if tiktok_url:
+                            tiktok_uris.append(tiktok_url)
+                        else:
+                            print(f"[WARNING] No tiktok_url found for video_id: {video_id}")
                     else:
                         print(f"[WARNING] Video document not found for video_id: {video_id}")
                 
-                print(f"[DEBUG] Retrieved {len(video_gcs_uris)} GCS URIs")
+                print(f"[DEBUG] Retrieved {len(video_gcs_uris)} GCS URIs and {len(tiktok_uris)} TikTok URIs")
             except Exception as e:
-                print(f"[WARNING] Failed to fetch GCS URIs from videos: {e}")
+                print(f"[WARNING] Failed to fetch URIs from videos: {e}")
 
         return TrendInfoResponse(
             success=True,
@@ -332,6 +339,7 @@ async def get_trend_info(req: TrendInfoRequest):
             detailed_description=detailed_description,
             trend_explanation=trend_explanation,
             video_gcs_uris=video_gcs_uris,
+            tiktok_uris=tiktok_uris,
             video_count=len(video_gcs_uris)
         )
 
