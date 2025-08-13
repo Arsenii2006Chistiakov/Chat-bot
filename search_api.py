@@ -298,17 +298,11 @@ async def get_trend_info(req: TrendInfoRequest):
             # Connect to Hugo_final2 database (separate from main db)
             hugo_db = chatbot.client.Hugo_final2
             clusters_collection = hugo_db.clusters
-            print(f"[DEBUG] Querying Hugo_final2.clusters for sound_id: {song_id}")
             cluster_doc = clusters_collection.find_one({"sound_id": song_id})
             if cluster_doc:
                 video_ids = cluster_doc.get("video_ids", [])
-                print(f"[DEBUG] Found cluster document: {cluster_doc}")
-                print(f"[DEBUG] Found {len(video_ids)} video IDs in clusters: {video_ids}")
             else:
-                print(f"[DEBUG] No cluster document found for sound_id: {song_id}")
-                # Try to see what's in the clusters collection
-                sample_clusters = list(clusters_collection.find().limit(3))
-                print(f"[DEBUG] Sample clusters: {sample_clusters}")
+                print(f"[WARNING] No cluster document found for sound_id: {song_id}")
         except Exception as e:
             print(f"[WARNING] Failed to fetch video IDs from clusters: {e}")
 
@@ -318,28 +312,21 @@ async def get_trend_info(req: TrendInfoRequest):
         if video_ids:
             try:
                 videos_collection = hugo_db.videos
-                print(f"[DEBUG] Querying Hugo_final2.videos for {len(video_ids)} video IDs")
                 for video_id in video_ids:
-                    print(f"[DEBUG] Looking for video with _id: {video_id}")
                     video_doc = videos_collection.find_one({"_id": video_id})
                     if video_doc:
-                        print(f"[DEBUG] Found video document: {video_doc}")
                         gcs_uri = video_doc.get("gcs_uri")
                         if gcs_uri:
                             video_gcs_uris.append(gcs_uri)
-                            print(f"[DEBUG] Added gcs_uri: {gcs_uri}")
                         else:
                             print(f"[WARNING] No gcs_uri found for video_id: {video_id}")
                         tiktok_url = video_doc.get("tiktok_url")
                         if tiktok_url:
                             tiktok_uris.append(tiktok_url)
-                            print(f"[DEBUG] Added tiktok_url: {tiktok_url}")
                         else:
                             print(f"[WARNING] No tiktok_url found for video_id: {video_id}")
                     else:
                         print(f"[WARNING] Video document not found for video_id: {video_id}")
-                
-                print(f"[DEBUG] Retrieved {len(video_gcs_uris)} GCS URIs and {len(tiktok_uris)} TikTok URIs")
             except Exception as e:
                 print(f"[WARNING] Failed to fetch URIs from videos: {e}")
         else:
