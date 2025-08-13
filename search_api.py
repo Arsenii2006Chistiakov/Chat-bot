@@ -295,7 +295,9 @@ async def get_trend_info(req: TrendInfoRequest):
         # Get video IDs from Hugo_final2.clusters
         video_ids = []
         try:
-            clusters_collection = chatbot.db.Hugo_final2.clusters
+            # Connect to Hugo_final2 database (separate from main db)
+            hugo_db = chatbot.client.Hugo_final2
+            clusters_collection = hugo_db.clusters
             print(f"[DEBUG] Querying Hugo_final2.clusters for sound_id: {song_id}")
             cluster_doc = clusters_collection.find_one({"sound_id": song_id})
             if cluster_doc:
@@ -315,7 +317,7 @@ async def get_trend_info(req: TrendInfoRequest):
         tiktok_uris = []
         if video_ids:
             try:
-                videos_collection = chatbot.db.Hugo_final2.videos
+                videos_collection = hugo_db.videos
                 print(f"[DEBUG] Querying Hugo_final2.videos for {len(video_ids)} video IDs")
                 for video_id in video_ids:
                     print(f"[DEBUG] Looking for video with _id: {video_id}")
