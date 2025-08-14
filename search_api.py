@@ -193,9 +193,13 @@ async def search(req: SearchRequest):
         # Add search to chat history
         chatbot._add_to_chat_history(message, f"Found {len(results)} results.", "search")
 
-        # Enrich results with trend information if TREND_STATUS is "EXISTS"
+        # Filter and enrich results - only include songs with TREND_STATUS="EXISTS" when searching for trends
         enriched_results = []
         for result in (results or []):
+            # Only include songs with TREND_STATUS="EXISTS" when the search includes trend filtering
+            if "TREND_STATUS" in search_params.get("filters", {}) and result.get("TREND_STATUS") != "EXISTS":
+                continue
+                
             enriched_result = {
                 "song_name": result.get("song_name"),
                 "artist_name": result.get("artist_name"),
