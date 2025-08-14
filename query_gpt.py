@@ -1648,10 +1648,9 @@ Return a JSON object with the following structure:
 }}
 
 IMPORTANT
-- TREND_STATUS: String (e.g., "EXISTS", "UNPROCESSED")<- songs which have a consistent trend with videos, don't use if user asks for "trending"
+- Always use TREND_STATUS = "EXISTS"
 - country names are always full names like "United States" or "United Kingdom" or "United Arab Emirates"
 - genres are always lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
-- only set TREND_STATUS to "PROCESSED" if user asks for a song with a distinct video trend (e.g "find me a song with a dance trend related to it", "find me song wiht a meme trend")
 - only look for country within charts, no "country" field available
 Examples:
 - "in Germany" → {{"filters": {{"charts.Germany": {{"$exists": true}}}}, "limit": 10, "description": "Songs that charted in Germany"}}
@@ -1661,27 +1660,6 @@ Examples:
 - "Spanish lyrics" → {{"filters": {{"language_code": "spa"}}, "limit": 10, "description": "Songs with Spanish lyrics"}}
 - "songs trending on the first week of August" → {{"filters": {{"first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-25"}}}}, "limit": 10, "description": "Songs trending on the first week of August using first_seen and last_seen"}}
 - "songs trenidng in Germany/Brazil/Argentina (or)" → {{"filters": {{"$or": [{{"charts.Germany": {{"$exists": true}}}}, {{"charts.Brazil": {{"$exists": true}}}}, {{"charts.Argentina": {{"$exists": true}}}}]}}, "limit": 10, "description": "Songs trending in Germany/Brazil/Argentina"}}
-
-    IMPORTANT: Set TREND_STATUS = "EXISTS" when user asks about trends, trending songs, or songs with trend information
-    Examples of when to use TREND_STATUS = "EXISTS":
-    - "find me songs with distinct video trends" → {{"filters": {{"TREND_STATUS": "EXISTS"}}, "limit": 10, "description": "Songs with distinct video trends"}}
-    - "find me songs with meme trends" → {{"filters": {{"TREND_STATUS": "EXISTS"}}, "limit": 10, "description": "Songs with distinct meme trends"}}
-    - "find me trending songs with videos" → {{"filters": {{"TREND_STATUS": "EXISTS"}}, "limit": 10, "description": "Songs with distinct video trends"}}
-    - "find me trending songs" → {{"filters": {{"TREND_STATUS": "EXISTS"}}, "limit": 10, "description": "Songs with trend information"}}
-    - "find me songs trending in Brazil" → {{"filters": {{"charts.Brazil": {{"$exists": true}}, "TREND_STATUS": "EXISTS"}}, "limit": 10, "description": "Songs trending in Brazil with trend information"}}
-    - "show me trending songs" → {{"filters": {{"TREND_STATUS": "EXISTS"}}, "limit": 10, "description": "Songs with trend information"}}
-    - "find me songs with dance trends" → {{"filters": {{"genres": "dance", "TREND_STATUS": "EXISTS"}}, "limit": 10, "description": "Dance genre songs with trend information"}}
-    
-    Examples of when NOT to use TREND_STATUS = "EXISTS":
-    - "find me songs" → {{"filters": {{}}, "limit": 10, "description": "All songs"}}
-    - "find me Latin songs" → {{"filters": {{"genres": "latin"}}, "limit": 10, "description": "Latin genre songs"}}
-    - "find me songs from 2024" → {{"filters": {{"first_seen": {{"$gte": "2024-01-01"}}}}, "limit": 10, "description": "Songs from 2024"}}
-    
-    Examples of combining filters:
-    - "find me songs with TikTok trends in Brazil" → {{"filters": {{"charts.Brazil": {{"$exists": true}}, "TREND_STATUS": "EXISTS"}}, "limit": 10, "description": "Songs with TikTok trends that are trending in Brazil"}}
-    - "find me trending songs with videos in Germany" → {{"filters": {{"charts.Germany": {{"$exists": true}}, "TREND_STATUS": "EXISTS"}}, "limit": 10, "description": "Songs with video trends that are trending in Germany"}}
-
-Provide only the JSON output. Do not include any other text or explanation.
 """
         
         import openai
