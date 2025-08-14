@@ -186,11 +186,7 @@ async def search(req: SearchRequest):
         except Exception:
             pass
 
-        # Always add TREND_STATUS="EXISTS" filter to all searches
-        if "filters" not in search_params:
-            search_params["filters"] = {}
-        search_params["filters"]["TREND_STATUS"] = "EXISTS"
-        print(f"[MODIFIED] Added TREND_STATUS=EXISTS filter to all searches")
+
 
         # Execute the search with suppressed internal output
         with exec_context():

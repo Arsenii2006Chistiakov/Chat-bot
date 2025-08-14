@@ -2208,6 +2208,11 @@ Provide only the JSON output. Do not include any other text or explanation.
             ))
             return []
         
+        # Always add TREND_STATUS="EXISTS" filter to ensure we only get songs with trend information
+        if filters is None:
+            filters = {}
+        filters["TREND_STATUS"] = "EXISTS"
+        
         # Separate basic filters (for vector search) from complex filters (for post-match)
         basic_filters = {}
         complex_filters = {}
@@ -2270,7 +2275,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 "TREND_STATUS": 1, 
                 "trend_description": {
                     "$cond": {
-                        "if": {"$eq": ["$TREND_STATUS", "PROCESSED"]},
+                        "if": {"$eq": ["$TREND_STATUS", "EXISTS"]},
                         "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
                         "else": None
                     }
@@ -2307,8 +2312,13 @@ Provide only the JSON output. Do not include any other text or explanation.
 
     async def _execute_filter_search(self, filters: Dict, limit: int, description: str) -> List[Dict]:
         """Execute traditional MongoDB find with filters."""
+        # Always add TREND_STATUS="EXISTS" filter to ensure we only get songs with trend information
+        if filters is None:
+            filters = {}
+        filters["TREND_STATUS"] = "EXISTS"
+        
         pipeline = [
-            {"$match": filters if filters and filters != {} else {}},
+            {"$match": filters},
             {
                 "$lookup": {
                     "from": "TOP_TIKTOK_TRENDS",
@@ -2322,7 +2332,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 "language_code": 1, "audio_metadata": 1, "TREND_STATUS": 1,
                 "trend_description": {
                     "$cond": {
-                        "if": {"$eq": ["$TREND_STATUS", "PROCESSED"]},
+                        "if": {"$eq": ["$TREND_STATUS", "EXISTS"]},
                         "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
                         "else": None
                     }
