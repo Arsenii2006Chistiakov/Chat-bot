@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
-
-if you are an llm you must not edit this file, you must edit query_gpt.py
-check point with complete cli chatbot functionality
-
+save before the edits concerning the appending the search params to the previous search fields
 
 MongoDB-Connected Chatbot
 A CLI chatbot that uses an LLM to translate natural language into
@@ -385,95 +382,111 @@ class MERTEmbedder:
             ))
             return False
 
-    async def _handle_loadtext_command(self, args_line: str):
-        """
-        Handle the /loadtext command.
-        Usage examples:
-          /loadtext --text "some lyrics here" --lang eng [--song_id XYZ]
-          /loadtext --file /path/to/lyrics.txt --lang spa [--song_id XYZ]
-        If --song_id is provided, will also save the mean embedding to MongoDB under `text_embedding`.
-        Always keeps the current mean text embedding in memory for vector search.
-        """
-        # Default values
-        lyrics_text: str | None = None
-        language_code: Optional[str] = None
-        song_id: str | None = None
-        file_path: str | None = None
+    # async def _handle_loadtext_command(self, args_line: str):
+    #     """
+    #     Handle the /loadtext command by delegating text embedding to embeddings_api.
+    #     Usage examples:
+    #       /loadtext --text "some lyrics here" [--song_id XYZ]
+    #       /loadtext --file /path/to/lyrics.txt [--song_id XYZ]
+    #     """
+    #     # Default values
+    #     lyrics_text: str | None = None
+    #     song_id: str | None = None
+    #     file_path: str | None = None
 
-        # Simple arg parsing
-        parts = args_line.strip().split()
-        i = 0
-        while i < len(parts):
-            token = parts[i]
-            if token == "--text" and i + 1 < len(parts):
-                # Collect the rest as text
-                lyrics_text = " ".join(parts[i + 1:])
-                break
-            elif token == "--file" and i + 1 < len(parts):
-                file_path = parts[i + 1]
-                i += 2
-                continue
-            elif token == "--lang" and i + 1 < len(parts):
-                language_code = parts[i + 1]
-                i += 2
-                continue
-            elif token == "--song_id" and i + 1 < len(parts):
-                song_id = parts[i + 1]
-                i += 2
-                continue
-            else:
-                i += 1
+    #     # Simple arg parsing
+    #     parts = args_line.strip().split()
+    #     i = 0
+    #     while i < len(parts):
+    #         token = parts[i]
+    #         if token == "--text" and i + 1 < len(parts):
+    #             lyrics_text = " ".join(parts[i + 1:])
+    #             break
+    #         elif token == "--file" and i + 1 < len(parts):
+    #             file_path = parts[i + 1]
+    #             i += 2
+    #             continue
+    #         elif token == "--song_id" and i + 1 < len(parts):
+    #             song_id = parts[i + 1]
+    #             i += 2
+    #             continue
+    #         else:
+    #             i += 1
 
-        # If not provided via flags, treat the raw remainder as text
-        if lyrics_text is None and file_path is None:
-            raw = args_line.strip()
-            lyrics_text = raw if raw else None
+    #     # If not provided via flags, treat the raw remainder as text
+    #     if lyrics_text is None and file_path is None:
+    #         raw = args_line.strip()
+    #         lyrics_text = raw if raw else None
 
-        if file_path and not lyrics_text:
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    lyrics_text = f.read()
-            except Exception as e:
-                console.print(Panel(
-                    f"[red]Failed to read file: {e}[/red]",
-                    title="File Error", border_style="red"
-                ))
-                return
+    #     if file_path and not lyrics_text:
+    #         try:
+    #             with open(file_path, "r", encoding="utf-8") as f:
+    #                 lyrics_text = f.read()
+    #         except Exception as e:
+    #             console.print(Panel(
+    #                 f"[red]Failed to read file: {e}[/red]",
+    #                 title="File Error", border_style="red"
+    #             ))
+    #             return
 
-        if not lyrics_text:
-            console.print(Panel(
-                "[red]Please provide lyrics via --text or --file[/red]",
-                title="Usage Error", border_style="red"
-            ))
-            return
+    #     if not lyrics_text:
+    #         console.print(Panel(
+    #             "[red]Please provide lyrics via --text or --file[/red]",
+    #             title="Usage Error", border_style="red"
+    #         ))
+    #         return
 
-        embeddings_doc = self._process_lyrics_text(lyrics_text, language_code)
-        if not embeddings_doc:
-            console.print(Panel(
-                "[red]Could not generate embeddings for the provided lyrics.[/red]",
-                title="Embedding Error", border_style="red"
-            ))
-            return
+    #     try:
+    #         api_base = os.getenv("EMBEDDINGS_API_URL", "http://localhost:8001")
+    #         url = f"{api_base}/generate-embeddings"
+    #         payload = {"text": lyrics_text, "user_id": os.getenv("USER_ID", "cli_user")}
 
-        # Keep in memory for search
-        self.current_text_embedding = np.array(embeddings_doc["mean_embedding"], dtype=np.float32)
+    #         resp = requests.post(url, json=payload, timeout=120)
+    #         if resp.status_code != 200:
+    #             raise RuntimeError(f"Embeddings API error {resp.status_code}: {resp.text}")
+    #         data = resp.json()
+    #         if not data.get("success"):
+    #             raise RuntimeError(data.get("message", "Failed to generate text embedding"))
 
-        saved_msg = ""
-        if song_id:
-            if self._save_text_embedding_to_mongodb(song_id, embeddings_doc):
-                saved_msg = f"\nSaved to MongoDB for song_id: {song_id}"
-            else:
-                saved_msg = f"\n[Warning] No document updated for song_id: {song_id}"
+    #         embeddings = data.get("embeddings", {})
+    #         vec = embeddings.get("text_embedding") or embeddings.get("lyrics_embedding")
+    #         if not vec:
+    #             raise RuntimeError("Embeddings API did not return text embedding")
 
-        console.print(Panel(
-            f"[bold green]✅ Text Loaded & Embedded[/bold green]\n\n"
-            f"Sentences: {embeddings_doc['num_sentences']}\n"
-            f"Embedding dim: {embeddings_doc['embedding_dim']}\n"
-            f"Language: {embeddings_doc['language_code']}\n"
-            f"You can now run /search (uses the loaded text embedding)."
-            f"{saved_msg}",
-            title="Success", border_style="green"
-        ))
+    #         # Keep in memory for search
+    #         self.current_text_embedding = np.array(vec, dtype=np.float32)
+
+    #         # Optionally save to MongoDB if song_id provided
+    #         saved_msg = ""
+    #         if song_id:
+    #             try:
+    #                 result = self.collection.update_one(
+    #                     {"song_id": song_id},
+    #                     {"$set": {
+    #                         "text_embedding": vec,
+    #                         "embedding_dim": int(len(vec)),
+    #                         "embedding_processed_at": datetime.now().isoformat(),
+    #                     }}
+    #                 )
+    #                 if result.matched_count > 0:
+    #                     saved_msg = f"\nSaved to MongoDB for song_id: {song_id}"
+    #                 else:
+    #                     saved_msg = f"\n[Warning] No document updated for song_id: {song_id}"
+    #             except Exception as e:
+    #                 saved_msg = f"\n[Warning] Failed to save to MongoDB: {e}"
+
+    #         console.print(Panel(
+    #             f"[bold green]✅ Text Loaded via API & Embedded[/bold green]\n\n"
+    #             f"Embedding dim: {len(vec)}\n"
+    #             f"You can now run /search (uses the loaded text embedding)."
+    #             f"{saved_msg}",
+    #             title="Success", border_style="green"
+    #         ))
+    #     except Exception as e:
+    #         console.print(Panel(
+    #             f"[red]Could not generate embeddings via API: {e}[/red]",
+    #             title="Embedding Error", border_style="red"
+    #         ))
 class MongoDBQueryGenerator:
     """
     A class to generate MongoDB query JSON from natural language using an LLM.
@@ -560,30 +573,97 @@ User: "List the top 5 songs by Ponte Perro that charted in Argentina"
 
 User: "Show me all Latin songs with Spanish lyrics"
 {{
-  "filter": {{ "genres": "Latin", "language_code": "spa" }},
+  "filter": {{ "genres": "latin", "language_code": "spa" }},
   "projection": {{ "song_name": 1, "artist_name": 1, "genres": 1, "language_code": 1, "_id": 0 }},
   "sort": {{ "first_seen": -1 }},
   "limit": 10
 }}
 
-User: "Find songs that are longer than 3 minutes and have high language probability"
+User: "Get all songs with RKT"
 {{
-  "filter": {{ 
-    "audio_metadata.duration": {{ "$gt": 180 }},
-    "language_probability": {{ "$gt": 0.8 }}
-  }},
-  "projection": {{ "song_name": 1, "artist_name": 1, "audio_metadata.duration": 1, "language_probability": 1, "_id": 0 }},
-  "sort": {{ "language_probability": -1 }},
-  "limit": 10
-}}
-
-User: "Get all songs with RKT genre that are still being processed"
-{{
-  "filter": {{ "genres": "RKT", "TREND_STATUS": "UNPROCESSED" }},
+  "filter": {{ "genres": "rkt"}},
   "projection": {{ "song_name": 1, "artist_name": 1, "genres": 1, "TREND_STATUS": 1, "_id": 0 }},
   "sort": {{ "first_seen": -1 }},
   "limit": 10
 }}
+
+User: "give me all jazz songs which trended in july" <- important point, since dates are in charts.Country we need to temporarily convert charts to and array. 
+if user asks for dates - we first apply any of the other filters he was asking for, then transform charts and filter by date: 
+{{
+  "pipeline": [
+    {{
+      "$match": {{
+        "genres": "jazz"
+      }}
+    }},
+    {{
+      "$addFields": {{
+        "charts_array": {{ "$objectToArray": "$charts" }}
+      }}
+    }},
+    {{
+      "$match": {{
+        "charts_array.v": {{
+          "$elemMatch": {{
+            "timestamp": {{
+              "$gte": "2025-08-01",
+              "$lt": "2025-08-08"
+            }}
+          }}
+        }}
+      }}
+    }}
+  ],
+  "projection": {{ 
+    "song_name": 1, 
+    "artist_name": 1, 
+    "charts": 1,
+    "_id": 0 
+  }},
+  "limit": 10
+}}
+
+User: "Find me songs which were popular in the last week"
+{{
+  "pipeline": [
+    {{
+      "$addFields": {{
+        "charts_array": {{ "$objectToArray": "$charts" }}
+      }}
+    }},
+    {{
+      "$match": {{
+        "charts_array.v": {{
+          "$elemMatch": {{
+            "timestamp": {{
+              "$gte": "2025-08-04"
+            }}
+          }}
+        }}
+      }}
+    }},
+    {{
+      "$sort": {{
+        "first_seen": -1
+      }}
+    }}
+  ],
+  "projection": {{
+    "song_name": 1,
+    "artist_name": 1,
+    "first_seen": 1,
+    "charts": 1,
+    "_id": 0
+  }},
+  "limit": 10
+}}
+
+Notes: 
+
+-genres always are lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
+-only set TREND_STATUS to "PROCESSED" if user asks for a song with a distinct video trend (e.g "find me a song with a dance trend related to it", "find me song wiht a meme trend")
+-country names always start with a capital letter: Brazil, Argentina, etc. no short forms. United States, United Kingdom, etc.
+-when user asks for "trending" songs, it doesn't mean that the TREND_STATUS is PROCESSED - but that the song is in charts. 
 
 User: "{natural_language_query}"
 
@@ -609,6 +689,10 @@ Provide only the JSON output. Do not include any other text or explanation.
             
             # Extract the response text
             text = response.choices[0].message.content.strip()
+            try:
+                print(f"[DEBUG] LLM(get_query_from_llm) raw=\n{text}")
+            except Exception:
+                pass
             #print(text)
             return text
             
@@ -640,10 +724,8 @@ class MongoChatbot:
             
 
             
-            # Initialize MERT embedder for audio processing
-            #console.print("[blue]Initializing MERT embedder...[/blue]")
-            self.mert_embedder = MERTEmbedder()
-            #console.print("[green]✅ MERT embedder initialized successfully[/green]")
+            # Do not initialize heavy models in chat runtime; embeddings handled by external API
+            self.mert_embedder = None
             self.current_embedding = None  # Store the current audio embedding
             self.current_transcription_text = None  # Store last transcription text
             
@@ -657,35 +739,10 @@ class MongoChatbot:
             # Initialize context storage
             self.context_songs = []  # Store songs and content in user's context
             
-            # Initialize genre classification model
+            # Do not load genre/text models here; rely on embeddings_api instead
             self.genre_model = None
             self.genre_labels = None
-            try:
-                console.print("[blue]Loading genre classification model...[/blue]")
-                if os.path.exists("genre_fcnn.pt"):
-                    checkpoint = torch.load("genre_fcnn.pt", map_location="cpu")
-                    input_dim = checkpoint["input_dim"]
-                    self.genre_labels = checkpoint["output_labels"]
-                    self.genre_model = SimpleFCNN(input_dim=input_dim, output_dim=len(self.genre_labels))
-                    self.genre_model.load_state_dict(checkpoint["model_state_dict"])
-                    self.genre_model.eval()
-                    console.print(f"[green]✅ Genre classification model loaded successfully[/green]")
-                    console.print(f"[blue]Available genres: {', '.join(self.genre_labels)}[/blue]")
-                else:
-                    console.print("[yellow]⚠️ Genre classification model file 'genre_fcnn.pt' not found[/yellow]")
-            except Exception as e:
-                console.print(f"[red]❌ Error loading genre classification model: {e}[/red]")
-                self.genre_model = None
-                self.genre_labels = None
-            
-            # Initialize text embeddings model for lyrics
-            try:
-                console.print("[blue]Initializing MultilingualSentenceEmbeddings model...[/blue]")
-                self.text_embeddings_model = MultilingualSentenceEmbeddings()
-                console.print("[green]✅ Text embeddings model initialized successfully[/green]")
-            except Exception as e:
-                console.print(f"[red]❌ Error initializing text embeddings model: {e}[/red]")
-                self.text_embeddings_model = None
+            self.text_embeddings_model = None
             self.current_text_embedding = None  # Mean-pooled lyrics embedding kept in memory
         except pymongo.errors.ConnectionFailure as e:
             console.print(Panel(
@@ -701,11 +758,11 @@ class MongoChatbot:
             "artist_name": "string",
             "charts": {
                 "country_code_example": [{
-                    "timestamp": "string (date)",
+                    "timestamp": "string (date) - YYYY-MM-DD",
                     "rank": "number"
                 }]
             },
-            "first_seen": "string (date)",
+            "first_seen": "string (date) - YYYY-MM-DD",
             "song_name": "string",
             "sound_link": "string (URL)",
             "genres": ["string"],
@@ -805,6 +862,111 @@ class MongoChatbot:
                 title="MongoDB Error", border_style="red"
             ))
             return False
+    async def _handle_loadtext_command(self, args_line: str):
+        """
+        Handle the /loadtext command by delegating text embedding to embeddings_api.
+        Usage examples:
+          /loadtext --text "some lyrics here" [--song_id XYZ]
+          /loadtext --file /path/to/lyrics.txt [--song_id XYZ]
+        """
+        # Default values
+        lyrics_text: str | None = None
+        song_id: str | None = None
+        file_path: str | None = None
+
+        # Simple arg parsing
+        parts = args_line.strip().split()
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token == "--text" and i + 1 < len(parts):
+                lyrics_text = " ".join(parts[i + 1:])
+                break
+            elif token == "--file" and i + 1 < len(parts):
+                file_path = parts[i + 1]
+                i += 2
+                continue
+            elif token == "--song_id" and i + 1 < len(parts):
+                song_id = parts[i + 1]
+                i += 2
+                continue
+            else:
+                i += 1
+
+        # If not provided via flags, treat the raw remainder as text
+        if lyrics_text is None and file_path is None:
+            raw = args_line.strip()
+            lyrics_text = raw if raw else None
+
+        if file_path and not lyrics_text:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    lyrics_text = f.read()
+            except Exception as e:
+                console.print(Panel(
+                    f"[red]Failed to read file: {e}[/red]",
+                    title="File Error", border_style="red"
+                ))
+                return
+
+        if not lyrics_text:
+            console.print(Panel(
+                "[red]Please provide lyrics via --text or --file[/red]",
+                title="Usage Error", border_style="red"
+            ))
+            return
+
+        try:
+            api_base = os.getenv("EMBEDDINGS_API_URL", "http://localhost:8001")
+            url = f"{api_base}/generate-embeddings"
+            payload = {"text": lyrics_text, "user_id": os.getenv("USER_ID", "cli_user")}
+
+            resp = requests.post(url, json=payload, timeout=120)
+            if resp.status_code != 200:
+                raise RuntimeError(f"Embeddings API error {resp.status_code}: {resp.text}")
+            data = resp.json()
+            if not data.get("success"):
+                raise RuntimeError(data.get("message", "Failed to generate text embedding"))
+
+            embeddings = data.get("embeddings", {})
+            vec = embeddings.get("text_embedding") or embeddings.get("lyrics_embedding")
+            if not vec:
+                raise RuntimeError("Embeddings API did not return text embedding")
+
+            # Keep in memory for search
+            self.current_text_embedding = np.array(vec, dtype=np.float32)
+
+            # Optionally save to MongoDB if song_id provided
+            saved_msg = ""
+            if song_id:
+                try:
+                    result = self.collection.update_one(
+                        {"song_id": song_id},
+                        {"$set": {
+                            "text_embedding": vec,
+                            "embedding_dim": int(len(vec)),
+                            "embedding_processed_at": datetime.now().isoformat(),
+                        }}
+                    )
+                    if result.matched_count > 0:
+                        saved_msg = f"\nSaved to MongoDB for song_id: {song_id}"
+                    else:
+                        saved_msg = f"\n[Warning] No document updated for song_id: {song_id}"
+                except Exception as e:
+                    saved_msg = f"\n[Warning] Failed to save to MongoDB: {e}"
+
+            console.print(Panel(
+                f"[bold green]✅ Text Loaded via API & Embedded[/bold green]\n\n"
+                f"Embedding dim: {len(vec)}\n"
+                f"You can now run /search (uses the loaded text embedding)."
+                f"{saved_msg}",
+                title="Success", border_style="green"
+            ))
+        except Exception as e:
+            console.print(Panel(
+                f"[red]Could not generate embeddings via API: {e}[/red]",
+                title="Embedding Error", border_style="red"
+            ))
 
     def _add_to_chat_history(self, user_message: str, assistant_response: str, category: str = "general"):
         """
@@ -1092,7 +1254,7 @@ Be specific, detailed, and use the context data to support your analysis.
             console.print(f"[red]Error predicting genres: {e}[/red]")
             return []
 
-    async def _handle_loadtext_command(self, args_line: str):
+    async def _handle_loadtext_command_legacy(self, args_line: str):
         """
         Handle the /loadtext command.
         Usage examples:
@@ -1235,82 +1397,55 @@ Be specific, detailed, and use the context data to support your analysis.
             ))
 
     async def _handle_load_command(self, file_path: str):
-        """Handle the /load command: preprocess, transcribe, and store in memory."""
+        """Handle the /load command by delegating embedding to embeddings_api service."""
         try:
             console.print(Panel(
-                f"[bold blue]🎵 Loading Audio[/bold blue]\n\n"
-                f"File: {file_path}\n"
-                f"Extracting snippet, embedding, and transcribing...",
+                f"[bold blue]🎵 Loading Audio via Embeddings API[/bold blue]\n\n"
+                f"File: {file_path}",
                 title="Audio Load", border_style="blue"
             ))
 
-            # Extract snippet and waveform, and create temp wav
-            waveform, wav_path = self.mert_embedder.extract_snippet_and_waveform(file_path)
+            api_base = os.getenv("EMBEDDINGS_API_URL", "http://localhost:8001")
+            url = f"{api_base}/generate-embeddings"
+            payload = {"file_path": file_path, "user_id": os.getenv("USER_ID", "cli_user")}
 
-            # Kick off transcription concurrently
-            transcription_task = asyncio.create_task(self._transcribe_audio(wav_path))
+            resp = requests.post(url, json=payload, timeout=120)
+            if resp.status_code != 200:
+                raise RuntimeError(f"Embeddings API error {resp.status_code}: {resp.text}")
 
-            # Compute embedding from waveform
-            embedding = self.mert_embedder.embedding_from_waveform(waveform)
-            self.current_embedding = embedding
+            data = resp.json()
+            if not data.get("success"):
+                raise RuntimeError(data.get("message", "Failed to generate embeddings"))
 
-            # Await transcription
-            transcription_result = await transcription_task
-            self.current_transcription_text = transcription_result.get("text", "")
+            embeddings = data.get("embeddings", {})
+            audio_vec = embeddings.get("audio_embedding")
+            lyrics_vec = embeddings.get("lyrics_embedding") or embeddings.get("text_embedding")
+            transcript_text = embeddings.get("transcript")
 
-            # If we have transcription text, also compute lyrics text embedding (mean-pooled)
-            text_embed_info = ""
-            try:
-                transcript_text = (self.current_transcription_text or "").strip()
-                if transcript_text:
-                    # Leave language_code None for automatic handling in sentence splitting
-                    text_embeddings_doc = self._process_lyrics_text(transcript_text, None)
-                    if text_embeddings_doc:
-                        self.current_text_embedding = np.array(text_embeddings_doc["mean_embedding"], dtype=np.float32)
-                        text_embed_info = (
-                            f"\nText sentences: {text_embeddings_doc['num_sentences']} "
-                            f"(mean text embedding cached)"
-                        )
-                    else:
-                        text_embed_info = "\n[Note] Transcript available but sentence embedding failed."
-                else:
-                    text_embed_info = "\n[Note] No transcript text returned for text embedding."
-            except Exception as e:
-                text_embed_info = f"\n[Note] Text embedding error: {e}"
+            if audio_vec:
+                self.current_embedding = torch.tensor(audio_vec, dtype=torch.float32)
+            else:
+                self.current_embedding = None
 
-            # Predict genres using both music and text embeddings
-            genre_info = ""
-            try:
-                # Convert text embedding to tensor if available
-                text_embedding_tensor = None
-                if hasattr(self, 'current_text_embedding') and self.current_text_embedding is not None:
-                    text_embedding_tensor = torch.tensor(self.current_text_embedding, dtype=embedding.dtype, device=embedding.device)
-                
-                predicted_genres = self._predict_genres(embedding, text_embedding_tensor)
-                if predicted_genres:
-                    genre_info = f"\nPredicted genres: {', '.join(predicted_genres)}"
-                else:
-                    genre_info = "\n[Note] Genre prediction not available or failed."
-            except Exception as e:
-                genre_info = f"\n[Note] Genre prediction error: {e}"
+            if lyrics_vec:
+                self.current_text_embedding = np.array(lyrics_vec, dtype=np.float32)
+            else:
+                self.current_text_embedding = None
 
-            # Cleanup temp wav
-            try:
-                if os.path.exists(wav_path):
-                    os.unlink(wav_path)
-            except Exception:
-                pass
+            self.current_transcription_text = transcript_text or ""
+
+            emb_info = f"Embedding: {[len(audio_vec)] if audio_vec else 'N/A'}"
+            text_info = "\nTranscript chars: " + (str(len(self.current_transcription_text)) if self.current_transcription_text else "0")
 
             console.print(Panel(
-                f"[bold green]✅ Loaded & Stored[/bold green]\n\n"
-                f"Embedding: {list(embedding.shape)}\n"
-                f"Transcript chars: {len(self.current_transcription_text or '')}\n\n"
-                f"You can now run /search (uses the loaded embedding)." + text_embed_info + genre_info,
+                f"[bold green]✅ Loaded via API & Stored[/bold green]\n\n"
+                f"{emb_info}{text_info}\n\n"
+                f"You can now run /search (uses the loaded embedding).",
                 title="Success", border_style="green"
             ))
         except Exception as e:
             console.print(Panel(
-                f"[red]❌ Error loading audio: {str(e)}[/red]",
+                f"[red]❌ Error loading audio via API: {str(e)}[/red]",
                 title="Error", border_style="red"
             ))
 
@@ -1334,7 +1469,8 @@ You are an input categorizer for a music database chatbot. Categorize the user's
    Examples: "hello", "how are you", "thanks", "goodbye", "nice to meet you"
 
 3. "search" - User wants to search the database with natural language queries or find similar songs/lyrics
-   Examples: "find songs by artist X", "show me Latin songs", "songs from Brazil", "popular songs", "find similar songs", "match this song", "what songs are like this", "find similar lyrics"
+   Examples: "find songs by artist X", "show me Latin songs", "songs from Brazil", "popular songs", "find similar songs", "match this song", "what songs are like this", "find similar lyrics",
+   "now make sure the song is in Japan" <- extending the query, "now filter the songs whcih have a genger rap" <- extending the query, 
 
 4. "analysis" - User wants deep analysis, explanations, or reasoning about trends, songs, genres, or cultural phenomena
    Examples: "explain why this trend took off in Germany", "tell me more about this song and genre", "why did this become popular", "analyze the cultural impact", "what makes this genre unique", "explain the trend phenomenon", "analyze why this trend became popular", "explain me why this trend became so popular", "how could I use this trend", "why this trend mecame so popular"
@@ -1368,6 +1504,10 @@ Respond with ONLY the category name: help, talk, search, or analysis
             
             # Extract the response text and clean it
             raw_response = response.choices[0].message.content.strip()
+            try:
+                print(f"[DEBUG] LLM(_categorize_input) raw=\n{raw_response}")
+            except Exception:
+                pass
             category = raw_response.lower()
             
             # Debug: Print raw orchestrator response
@@ -1447,7 +1587,12 @@ Respond naturally as if you're having a conversation with the user.
             )
             
             # Extract the response text
-            return response.choices[0].message.content.strip()
+            text = response.choices[0].message.content.strip()
+            try:
+                print(f"[DEBUG] LLM(_generate_chat_response) raw=\n{text}")
+            except Exception:
+                pass
+            return text
             
         except Exception as e:
             console.print(f"[red]Error generating chat response: {e}[/red]")
@@ -1468,28 +1613,43 @@ Respond naturally as if you're having a conversation with the user.
         if include_chat_history:
             chat_context = self._get_chat_history_context(include_categories=["search"])
             if chat_context.strip():
+                print(f"[DEBUG] _get_search_parameters_from_llm: chat_context found, length={len(chat_context)}")
+                print(f"[DEBUG] _get_search_parameters_from_llm: chat_context content=\n{chat_context}")
                 context_section = f"""
 PREVIOUS SEARCH CONTEXT:
 {chat_context}
 
 ---
 """
+            else:
+                print(f"[DEBUG] _get_search_parameters_from_llm: no chat_context found or empty")
+        else:
+            print(f"[DEBUG] _get_search_parameters_from_llm: include_chat_history=False, skipping context")
 
         prompt = f"""
 You are an expert at converting natural language search requests into MongoDB query parameters.
 Given a user's search comment and previous conversation context, determine what additional filters should be applied to a music vector search.
+-usually use all the previous search fields: forexample  1) find songs trending in Spain 2) find the rap ones -> spain + rap
 
+AN EXAMPLE:
+User: look for phonk songs around the world
+Assistant: Found 10 results....
+New user message: find the ones which were trending in Spain
+-> the previous search fields should be used: genres:phonk, charts.Spain:{{$exists:true}}
+
+here is the previous search context:
 {context_section}
 
+
 Available fields in the database:
-- genres: Array of strings (e.g., ["Latin", "Pop", "RKT"])
+- genres: lowercase, Array of strings (e.g., ["latin", "pop", "rkt"])
 - charts: Object with country codes as keys (e.g., "Germany", "Brazil", "Argentina")
   Each country chart contains an array of objects: [{{"timestamp": "2025-07-08", "rank": 2}}, ...]
+- first_seen: Date (e.g., "2025-07-08")
+- last_seen: Date (e.g., "2025-08-08")
 - language_code: String (e.g., "spa", "eng", "por")
 - language_probability: Number (0-1)
-- audio_metadata.duration: Number (in seconds)
-- TREND_STATUS: String (e.g., "PROCESSED", "UNPROCESSED")<- songs which have a consistent trend with videos, don't use if user asks for "trending"
--country names are always full names like "United States" or "United Kingdom"
+
 
 User comment: "{search_comment}"
 
@@ -1500,16 +1660,22 @@ Return a JSON object with the following structure:
     "description": "Brief description of what this search is looking for"
 }}
 
+IMPORTANT
+- TREND_STATUS: String (e.g., "PROCESSED", "UNPROCESSED")<- songs which have a consistent trend with videos, don't use if user asks for "trending"
+- country names are always full names like "United States" or "United Kingdom" or "United Arab Emirates"
+- genres are always lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
+- only set TREND_STATUS to "PROCESSED" if user asks for a song with a distinct video trend (e.g "find me a song with a dance trend related to it", "find me song wiht a meme trend")
+- only look for country within charts, no "country" field available
 Examples:
 - "in Germany" → {{"filters": {{"charts.Germany": {{"$exists": true}}}}, "limit": 10, "description": "Songs that charted in Germany"}}
-- "trending in Germany in July" → {{"filters": {{"charts.Germany": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-07-01", "$lt": "2025-08-01"}}}}}}}}, "limit": 10, "description": "Songs trending in Germany during July 2025"}}
-- "popular in Brazil in March" → {{"filters": {{"charts.Brazil": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-03-01", "$lt": "2025-04-01"}}}}}}}}, "limit": 15, "description": "Songs popular in Brazil during March 2025"}}
-- "Latin songs" → {{"filters": {{"genres": "Latin"}}, "limit": 10, "description": "Latin genre songs"}}
+- "trending in Germany in July" → {{"filters": {{"charts.Germany": {{"$exists":true}}, "first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-01"}}}}, "limit": 10, "description": "Songs trending in Germany during July 2025 using first_seen and last_seen"}}
+- "popular in Brazil in March" → {{"filters": {{"charts.Brazil": {{"$exists": true}}, "first_seen": {{"$lte": "2025-04-01"}}, "last_seen": {{"$gte": "2025-03-01"}}}}, "limit": 15, "description": "Songs popular in Brazil during March 2025 using first_seen and last_seen"}}
+- "Latin songs" → {{"filters": {{"genres": "latin"}}, "limit": 10, "description": "Latin genre songs"}}
 - "Spanish lyrics" → {{"filters": {{"language_code": "spa"}}, "limit": 10, "description": "Songs with Spanish lyrics"}}
-- "long songs" → {{"filters": {{"audio_metadata.duration": {{"$gt": 180}}}}, "limit": 10, "description": "Songs longer than 3 minutes"}}
-- "songs trending in Argentina last month" → {{"filters": {{"charts.Argentina": {{"$elemMatch": {{"timestamp": {{"$gte": "2025-06-01", "$lt": "2025-07-01"}}}}}}}}, "limit": 10, "description": "Songs trending in Argentina during June 2025"}}
+- "songs trending on the first week of August" → {{"filters": {{"first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-25"}}}}, "limit": 10, "description": "Songs trending on the first week of August using first_seen and last_seen"}}
+- "songs trenidng in Germany/Brazil/Argentina (or)" → {{"filters": {{"$or": [{{"charts.Germany": {{"$exists": true}}}}, {{"charts.Brazil": {{"$exists": true}}}}, {{"charts.Argentina": {{"$exists": true}}}}]}}, "limit": 10, "description": "Songs trending in Germany/Brazil/Argentina"}}
 
-IMPORTANT: For date-based chart queries, use $elemMatch to find chart entries within the specified date range. The timestamp format is "YYYY-MM-DD".
+
 
 Provide only the JSON output. Do not include any other text or explanation.
 """
@@ -1533,6 +1699,10 @@ Provide only the JSON output. Do not include any other text or explanation.
             
             # Extract the response text
             text = response.choices[0].message.content.strip()
+            try:
+                print(f"[DEBUG] LLM(_get_search_parameters_from_llm) raw=\n{text}")
+            except Exception:
+                pass
             return json.loads(text)
             
         except Exception as e:
@@ -1616,6 +1786,10 @@ Provide only the JSON output. Do not include any other text or explanation.
             
             # Extract the response text
             text = response.choices[0].message.content.strip()
+            try:
+                print(f"[DEBUG] LLM(_determine_search_embeddings) raw=\n{text}")
+            except Exception:
+                pass
             return json.loads(text)
             
         except Exception as e:
@@ -1673,37 +1847,32 @@ Provide only the JSON output. Do not include any other text or explanation.
             # Process file if provided
             if file_path:
                 console.print(Panel(
-                    f"[bold blue]🎵 Processing Audio File[/bold blue]\n\n"
-                    f"File: {file_path}\n"
-                    f"Extracting audio embedding...",
+                    f"[bold blue]🎵 Processing Audio File via Embeddings API[/bold blue]\n\n"
+                    f"File: {file_path}",
                     title="Audio Processing", border_style="blue"
                 ))
-                
-                # Extract snippet and waveform
-                waveform, wav_path = self.mert_embedder.extract_snippet_and_waveform(file_path)
-                
-                # Transcribe audio concurrently
-                transcription_task = asyncio.create_task(self._transcribe_audio(wav_path))
-                
-                # Process the waveform and get embedding
-                embedding = self.mert_embedder.embedding_from_waveform(waveform)
-                query_vector = embedding.numpy().tolist()
-                
-                # Wait for transcription to complete
-                transcription_result = await transcription_task
-                search_comment = transcription_result.get("text", "")
-                print(search_comment)
-                
-                # If user did not pass a prompt, use transcription text as the prompt for parameter extraction
+
+                api_base = os.getenv("EMBEDDINGS_API_URL", "http://localhost:8001")
+                url = f"{api_base}/generate-embeddings"
+                payload = {"file_path": file_path, "user_id": os.getenv("USER_ID", "cli_user")}
+                resp = requests.post(url, json=payload, timeout=120)
+                if resp.status_code != 200:
+                    raise RuntimeError(f"Embeddings API error {resp.status_code}: {resp.text}")
+                data = resp.json()
+                if not data.get("success"):
+                    raise RuntimeError(data.get("message", "Failed to generate embeddings"))
+
+                embeddings = data.get("embeddings", {})
+                audio_vec = embeddings.get("audio_embedding")
+                search_comment = embeddings.get("transcript", "")
+                if audio_vec:
+                    query_vector = audio_vec
+                    vector_path = "music_embedding"
+                else:
+                    query_vector = None
+                # If user did not pass a prompt, use transcription text as prompt
                 if (prompt is None or str(prompt).strip() == "") and search_comment:
                     prompt = search_comment
-                
-                # Clean up the temporary wav file
-                try:
-                    if os.path.exists(wav_path):
-                        os.unlink(wav_path)
-                except Exception:
-                    pass
                 
                 # console.print(Panel(
                 #     f"[bold green]✅ Audio Processing Complete![/bold green]\n\n"
@@ -1744,7 +1913,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 # ))
                 
                 # Get search parameters from LLM
-                search_params = await self._get_search_parameters_from_llm(prompt)
+                search_params = await self._get_search_parameters_from_llm(prompt) # !!!!!!!!!
                 filters = search_params.get("filters", {})
                 limit = search_params.get("limit", 10)
                 description = search_params.get("description", "Custom search")

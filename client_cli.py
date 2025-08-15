@@ -61,6 +61,8 @@ def print_search_results(results: List[Dict[str, Any]]) -> None:
             f"[bold]Song Name:[/bold] {song_name}\n"
             f"[bold]Artist:[/bold] {artist_name}\n"
             f"[bold]Genres:[/bold] {genres}\n"
+            f"[bold]GCS Path:[/bold] {result.get('gcs_path', 'N/A')}\n"
+            f"[bold]Sound Link:[/bold] {result.get('sound_link', 'N/A')}\n"
             f"{trend_info}"
             f"[bold]Lyrics Preview:[/bold] {lyrics_preview}\n"
         )

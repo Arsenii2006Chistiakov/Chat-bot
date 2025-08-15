@@ -2021,9 +2021,16 @@ Provide only the JSON output. Do not include any other text or explanation.
                 
             results = list(self.collection.aggregate(pipeline))
             
+            # Debug: Check what fields are actually returned
+            if results and len(results) > 0:
+                console.print(f"[DEBUG] First result fields: {list(results[0].keys())}")
+                console.print(f"[DEBUG] First result gcs_path: {results[0].get('gcs_path', 'NOT_FOUND')}")
+                console.print(f"[DEBUG] First result sound_link: {results[0].get('sound_link', 'NOT_FOUND')}")
+            
             # Store results for /add command
             self.proposed_results = results
             
+            # Check if we got any results after filtering
             if not results:
                 console.print(Panel(
                     "[yellow]No similar songs found matching your criteria.[/yellow]",
@@ -2327,6 +2334,12 @@ Provide only the JSON output. Do not include any other text or explanation.
         ]
         
         results = list(self.collection.aggregate(pipeline))
+        
+        # Debug: Check what fields are actually returned
+        if results and len(results) > 0:
+            console.print(f"[DEBUG] Filter search - First result fields: {list(results[0].keys())}")
+            console.print(f"[DEBUG] Filter search - First result gcs_path: {results[0].get('gcs_path', 'NOT_FOUND')}")
+            console.print(f"[DEBUG] Filter search - First result sound_link: {results[0].get('sound_link', 'NOT_FOUND')}")
         
         # Store results for /add command
         self.proposed_results = results

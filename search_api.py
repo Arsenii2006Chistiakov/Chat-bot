@@ -195,6 +195,12 @@ async def search(req: SearchRequest):
         # Add search to chat history
         chatbot._add_to_chat_history(message, f"Found {len(results)} results.", "search")
 
+        # Debug: Print the first result to see what fields are available
+        if results and len(results) > 0:
+            print(f"[DEBUG] First result fields: {list(results[0].keys())}")
+            print(f"[DEBUG] First result gcs_path: {results[0].get('gcs_path', 'NOT_FOUND')}")
+            print(f"[DEBUG] First result sound_link: {results[0].get('sound_link', 'NOT_FOUND')}")
+
         # Filter and enrich results - only include songs with TREND_STATUS="EXISTS" when searching for trends
         enriched_results = []
         for result in (results or []):
@@ -207,7 +213,9 @@ async def search(req: SearchRequest):
                 "artist_name": result.get("artist_name"),
                 "song_id": result.get("song_id"),
                 "genres": result.get("genres", []),
-                "TREND_STATUS": result.get("TREND_STATUS")
+                "TREND_STATUS": result.get("TREND_STATUS"),
+                "gcs_path": result.get("gcs_path"),
+                "sound_link": result.get("sound_link")
             }
             
             # If TREND_STATUS is "EXISTS", fetch trend_description from TOP_TIKTOK_TRENDS
