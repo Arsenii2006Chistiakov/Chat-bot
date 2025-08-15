@@ -1962,6 +1962,8 @@ Provide only the JSON output. Do not include any other text or explanation.
                             "language_code": 1,
                             "audio_metadata": 1,
                             "TREND_STATUS": 1,
+                            "gcs_path": 1,
+                            "sound_link": 1,
                             "trend_description": {
                                 "$cond": {
                                     "if": {"$eq": ["$TREND_STATUS", "PROCESSED"]},
@@ -2001,6 +2003,8 @@ Provide only the JSON output. Do not include any other text or explanation.
                             "language_code": 1,
                             "audio_metadata": 1,
                             "TREND_STATUS": 1,
+                            "gcs_path": 1,
+                            "sound_link": 1,
                             "trend_description": {
                                 "$cond": {
                                     "if": {"$eq": ["$TREND_STATUS", "PROCESSED"]},
@@ -2071,6 +2075,8 @@ Provide only the JSON output. Do not include any other text or explanation.
                     f"[bold]Artist:[/bold] {artist_name}\n"
                     f"[bold]Genres:[/bold] {genres}\n"
                     f"[bold]Language:[/bold] {language}\n"
+                    f"[bold]GCS Path:[/bold] {result.get('gcs_path', 'N/A')}\n"
+                    f"[bold]Sound Link:[/bold] {result.get('sound_link', 'N/A')}\n"
                     f"{trend_info}"
                     #f"[bold]Similarity Score:[/bold] {music_score:.4f}\n"
                     #f"[bold]First Seen:[/bold] {result.get('first_seen', 'N/A')}\n"
@@ -2250,7 +2256,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 "_id": 1, "song_id": 1, "song_name": 1, "artist_name": 1,
                 "lyrics": 1, "genres": 1, "score": 1, "first_seen": 1,
                 "charts": 1, "language_code": 1, "audio_metadata": 1,
-                "TREND_STATUS": 1, 
+                "TREND_STATUS": 1, "gcs_path": 1, "sound_link": 1,
                 "trend_description": {
                     "$cond": {
                         "if": {"$eq": ["$TREND_STATUS", "EXISTS"]},
@@ -2308,6 +2314,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 "_id": 1, "song_id": 1, "song_name": 1, "artist_name": 1,
                 "lyrics": 1, "genres": 1, "first_seen": 1, "charts": 1,
                 "language_code": 1, "audio_metadata": 1, "TREND_STATUS": 1,
+                "gcs_path": 1, "sound_link": 1,
                 "trend_description": {
                     "$cond": {
                         "if": {"$eq": ["$TREND_STATUS", "EXISTS"]},
@@ -2379,6 +2386,8 @@ Provide only the JSON output. Do not include any other text or explanation.
                 f"[bold]Song Name:[/bold] {song_name}\n"
                 f"[bold]Artist:[/bold] {artist_name}\n"
                 f"[bold]Genres:[/bold] {genres}\n"
+                f"[bold]GCS Path:[/bold] {result.get('gcs_path', 'N/A')}\n"
+                f"[bold]Sound Link:[/bold] {result.get('sound_link', 'N/A')}\n"
                 #f"[bold]Language:[/bold] {language}\n"
             )
             
