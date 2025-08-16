@@ -54,6 +54,13 @@ def _sanitize(value: Any) -> Any:
     # Fallback to string to avoid serialization errors
     return str(value)
 
+def _normalize_trend_fields(trend_doc: dict) -> tuple[str, str, str]:
+    td = trend_doc.get("trend_description") or trend_doc.get("oneliner") or ""
+    dd = (trend_doc.get("detailedDescription")
+          or trend_doc.get("detailed_description")
+          or trend_doc.get("insight") or "")
+    te = trend_doc.get("trendExplanation") or trend_doc.get("trend_explanation") or ""
+    return td, dd, te
 
 class SearchRequest(BaseModel):
     message: str = Field(..., description="Search message/query")
@@ -294,17 +301,22 @@ async def get_trend_info(req: TrendInfoRequest):
             )
 
         # Get trend information from TOP_TIKTOK_TRENDS
-        trend_doc = chatbot.trends_collection.find_one({"song_id": song_id})
+        trend_doc = (
+    chatbot.trends_collection.find_one({"song_id": song_id, "analysis_result.basic": False})
+    or chatbot.trends_collection.find_one({"song_id": song_id})
+)
         if not trend_doc:
             return TrendInfoResponse(
-                success=False,
-                message=f"Trend information not found for song '{song_id}'",
-                song_id=song_id
-            )
-
+        success=False,
+        message=f"Trend information not found for song '{song_id}'",
+        song_id=song_id
+    )
+        """
         trend_description = trend_doc.get("trend_description", "")
         detailed_description = trend_doc.get("detailedDescription", "")
         trend_explanation = trend_doc.get("trendExplanation", "")
+        """
+        trend_description, detailed_description, trend_explanation = _normalize_trend_fields(trend_doc)
 
         # Get video IDs from Hugo_final2.clusters
         video_ids = []
