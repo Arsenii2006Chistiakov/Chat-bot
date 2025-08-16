@@ -2267,7 +2267,19 @@ Provide only the JSON output. Do not include any other text or explanation.
                 "trend_description": {
                     "$cond": {
                         "if": {"$eq": ["$TREND_STATUS", "EXISTS"]},
-                        "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
+                        "then": {
+                            "$cond": {
+                                "if": {"$gt": [{"$size": "$trend_info"}, 0]},
+                                "then": {
+                                    "$cond": {
+                                        "if": {"$ifNull": [{"$arrayElemAt": ["$trend_info.trend_description", 0]}, false]},
+                                        "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
+                                        "else": {"$arrayElemAt": ["$trend_info.oneliner", 0]}
+                                    }
+                                },
+                                "else": None
+                            }
+                        },
                         "else": None
                     }
                 }
@@ -2325,7 +2337,19 @@ Provide only the JSON output. Do not include any other text or explanation.
                 "trend_description": {
                     "$cond": {
                         "if": {"$eq": ["$TREND_STATUS", "EXISTS"]},
-                        "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
+                        "then": {
+                            "$cond": {
+                                "if": {"$gt": [{"$size": "$trend_info"}, 0]},
+                                "then": {
+                                    "$cond": {
+                                        "if": {"$ifNull": [{"$arrayElemAt": ["$trend_info.trend_description", 0]}, false]},
+                                        "then": {"$arrayElemAt": ["$trend_info.trend_description", 0]},
+                                        "else": {"$arrayElemAt": ["$trend_info.oneliner", 0]}
+                                    }
+                                },
+                                "else": None
+                            }
+                        },
                         "else": None
                     }
                 }
