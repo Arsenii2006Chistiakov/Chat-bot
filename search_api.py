@@ -218,26 +218,12 @@ async def search(req: SearchRequest):
                 "sound_link": result.get("sound_link")
             }
             
-            # If TREND_STATUS is "EXISTS", fetch trend information from TOP_TIKTOK_TRENDS
+            # If TREND_STATUS is "EXISTS", fetch trend_description from TOP_TIKTOK_TRENDS
             if result.get("TREND_STATUS") == "EXISTS":
                 try:
                     trend_doc = chatbot.trends_collection.find_one({"song_id": result.get("song_id")})
                     if trend_doc:
-                        # Handle both old and new schema
-                        # Old schema: trend_description
-                        # New schema: oneliner, insight, category, etc.
-                        if "trend_description" in trend_doc:
-                            # Old schema
-                            enriched_result["trend_description"] = trend_doc.get("trend_description", "")
-                        elif "oneliner" in trend_doc:
-                            # New schema
-                            enriched_result["trend_description"] = trend_doc.get("oneliner", "")
-                            enriched_result["trend_insight"] = trend_doc.get("insight", "")
-                            enriched_result["trend_category"] = trend_doc.get("category", "")
-                            enriched_result["trend_comment_count"] = trend_doc.get("comment_count", 0)
-                        else:
-                            # Fallback
-                            enriched_result["trend_description"] = ""
+                        enriched_result["trend_description"] = trend_doc.get("trend_description", "")
                     else:
                         enriched_result["trend_description"] = ""
                 except Exception as e:
@@ -316,22 +302,9 @@ async def get_trend_info(req: TrendInfoRequest):
                 song_id=song_id
             )
 
-        # Handle both old and new schema
-        if "trend_description" in trend_doc:
-            # Old schema
-            trend_description = trend_doc.get("trend_description", "")
-            detailed_description = trend_doc.get("detailedDescription", "")
-            trend_explanation = trend_doc.get("trendExplanation", "")
-        elif "oneliner" in trend_doc:
-            # New schema
-            trend_description = trend_doc.get("oneliner", "")
-            detailed_description = trend_doc.get("insight", "")
-            trend_explanation = f"Category: {trend_doc.get('category', 'N/A')}, Comments: {trend_doc.get('comment_count', 0)}"
-        else:
-            # Fallback
-            trend_description = ""
-            detailed_description = ""
-            trend_explanation = ""
+        trend_description = trend_doc.get("trend_description", "")
+        detailed_description = trend_doc.get("detailedDescription", "")
+        trend_explanation = trend_doc.get("trendExplanation", "")
 
         # Get video IDs from Hugo_final2.clusters
         video_ids = []
