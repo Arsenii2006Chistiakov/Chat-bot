@@ -55,12 +55,11 @@ def _sanitize(value: Any) -> Any:
     return str(value)
 
 def _normalize_trend_fields(trend_doc: dict) -> tuple[str, str, str]:
-    td = trend_doc.get("trend_description") or trend_doc.get("oneliner") or ""
-    dd = (trend_doc.get("detailedDescription")
-          or trend_doc.get("detailed_description")
-          or trend_doc.get("insight") or "")
-    te = trend_doc.get("trendExplanation") or trend_doc.get("trend_explanation") or ""
-    return td, dd, te
+    # Parse new document structure: {category, oneliner, insight}
+    td = trend_doc.get("oneliner") or trend_doc.get("trend_description") or ""
+    dd = trend_doc.get("insight") or trend_doc.get("detailedDescription") or trend_doc.get("detailed_description") or ""
+    category = trend_doc.get("category") or ""
+    return td, dd, category
 
 class SearchRequest(BaseModel):
     message: str = Field(..., description="Search message/query")
@@ -77,7 +76,7 @@ class TrendInfoResponse(BaseModel):
     song_id: str
     trend_description: Optional[str] = None
     detailed_description: Optional[str] = None
-    trend_explanation: Optional[str] = None
+    category: Optional[str] = None
     video_gcs_uris: List[str] = []
     tiktok_uris: List[str] = []
     video_count: int = 0
@@ -230,16 +229,37 @@ async def search(req: SearchRequest):
                 try:
                     trend_doc = chatbot.trends_collection.find_one({"song_id": result.get("song_id")})
                     if trend_doc:
-                        enriched_result["trend_description"] = trend_doc.get("trend_description", "")
+                        # Request oneliner instead of trend_description, but keep response field name
+                        enriched_result["trend_description"] = trend_doc.get("oneliner", "") or trend_doc.get("trend_description", "")
+                        enriched_result["category"] = trend_doc.get("category", "")  # Add category field
+                        enriched_result["nature"] = trend_doc.get("nature", "")  # Add nature field for sorting
                     else:
                         enriched_result["trend_description"] = ""
+                        enriched_result["category"] = ""
+                        enriched_result["nature"] = ""
                 except Exception as e:
                     print(f"[WARNING] Failed to fetch trend description for song_id {result.get('song_id')}: {e}")
                     enriched_result["trend_description"] = ""
+                    enriched_result["category"] = ""
+                    enriched_result["nature"] = ""
             else:
                 enriched_result["trend_description"] = ""
+                enriched_result["category"] = ""
+                enriched_result["nature"] = ""
             
             enriched_results.append(enriched_result)
+
+        # Sort results: "trend" nature comes first, then "collection", then others
+        def sort_by_nature(result):
+            nature = result.get("nature", "")
+            if nature == "trend":
+                return 0  # Highest priority
+            elif nature == "collection":
+                return 1  # Medium priority
+            else:
+                return 2  # Lower priority
+        
+        enriched_results.sort(key=sort_by_nature)
 
         # Sanitize results for JSON response
         sanitized_results = [_sanitize(doc) for doc in enriched_results]
@@ -301,22 +321,15 @@ async def get_trend_info(req: TrendInfoRequest):
             )
 
         # Get trend information from TOP_TIKTOK_TRENDS
-        trend_doc = (
-    chatbot.trends_collection.find_one({"song_id": song_id, "analysis_result.basic": False})
-    or chatbot.trends_collection.find_one({"song_id": song_id})
-)
+        trend_doc = chatbot.trends_collection.find_one({"song_id": song_id})
         if not trend_doc:
             return TrendInfoResponse(
-        success=False,
-        message=f"Trend information not found for song '{song_id}'",
-        song_id=song_id
-    )
-        """
-        trend_description = trend_doc.get("trend_description", "")
-        detailed_description = trend_doc.get("detailedDescription", "")
-        trend_explanation = trend_doc.get("trendExplanation", "")
-        """
-        trend_description, detailed_description, trend_explanation = _normalize_trend_fields(trend_doc)
+                success=False,
+                message=f"Trend information not found for song '{song_id}'",
+                song_id=song_id
+            )
+        
+        trend_description, detailed_description, category = _normalize_trend_fields(trend_doc)
 
         # Get video IDs from Hugo_final2.clusters
         video_ids = []
@@ -364,7 +377,7 @@ async def get_trend_info(req: TrendInfoRequest):
             song_id=song_id,
             trend_description=trend_description,
             detailed_description=detailed_description,
-            trend_explanation=trend_explanation,
+            category=category,
             video_gcs_uris=video_gcs_uris,
             tiktok_uris=tiktok_uris,
             video_count=len(video_gcs_uris)
