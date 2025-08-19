@@ -247,19 +247,38 @@ async def search(req: SearchRequest):
                 enriched_result["category"] = ""
                 enriched_result["nature"] = ""
             
+            # Get video_count from TOP_TIKTOK_SOUNDS collection
+            try:
+                sound_doc = chatbot.collection.find_one({"song_id": result.get("song_id")})
+                if sound_doc:
+                    enriched_result["video_count"] = sound_doc.get("video_count", 0)
+                else:
+                    enriched_result["video_count"] = 0
+            except Exception as e:
+                print(f"[WARNING] Failed to fetch video_count for song_id {result.get('song_id')}: {e}")
+                enriched_result["video_count"] = 0
+            
             enriched_results.append(enriched_result)
 
         # Sort results: "trend" nature comes first, then "collection", then others
-        def sort_by_nature(result):
+        # Within each nature group, sort by video_count (descending - highest first)
+        def sort_by_nature_and_video_count(result):
             nature = result.get("nature", "")
+            video_count = result.get("video_count", 0)
+            
+            # First level: nature priority
             if nature == "trend":
-                return 0  # Highest priority
+                nature_priority = 0  # Highest priority
             elif nature == "collection":
-                return 1  # Medium priority
+                nature_priority = 1  # Medium priority
             else:
-                return 2  # Lower priority
+                nature_priority = 2  # Lower priority
+            
+            # Return tuple for two-level sorting: (nature_priority, -video_count)
+            # Negative video_count for descending order (highest first)
+            return (nature_priority, -video_count)
         
-        enriched_results.sort(key=sort_by_nature)
+        enriched_results.sort(key=sort_by_nature_and_video_count)
 
         # Sanitize results for JSON response
         sanitized_results = [_sanitize(doc) for doc in enriched_results]
