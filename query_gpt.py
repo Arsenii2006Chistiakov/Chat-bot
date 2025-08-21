@@ -2015,6 +2015,9 @@ Provide only the JSON output. Do not include any other text or explanation.
                         }
                     },
                     {
+                        "$sort": {"_id": -1}
+                    },
+                    {
                         "$limit": limit
                     }
                 ]
@@ -2273,6 +2276,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                 }
             }},
             {"$sort": {"score": -1}},
+            {"$sort": {"_id": -1}},
             {"$limit": limit}
         ])
         
@@ -2330,6 +2334,7 @@ Provide only the JSON output. Do not include any other text or explanation.
                     }
                 }
             }},
+            {"$sort": {"_id": -1}},
             {"$limit": limit}
         ]
         
