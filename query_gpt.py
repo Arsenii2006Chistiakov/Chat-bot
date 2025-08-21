@@ -1630,8 +1630,7 @@ here is the previous search context:
 
 Available fields in the database:
 - genres: lowercase, Array of strings (e.g., ["latin", "pop", "rkt"])
-- charts: Object with country codes as keys (e.g., "Germany", "Brazil", "Argentina")
-  Each country chart contains an array of objects: [{{"timestamp": "2025-07-08", "rank": 2}}, ...]
+- trend_countries: Array of country names (e.g., ["Germany", "Brazil", "Argentina"])
 - first_seen: Date (e.g., "2025-07-08")
 - last_seen: Date (e.g., "2025-08-08")
 - language_code: String (e.g., "spa", "eng", "por")
@@ -1651,15 +1650,15 @@ IMPORTANT
 - Always use TREND_STATUS = "EXISTS"
 - country names are always full names like "United States" or "United Kingdom" or "United Arab Emirates"
 - genres are always lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
-- only look for country within charts, no "country" field available
+- use trend_countries array for country filtering
 Examples:
-- "in Germany" → {{"filters": {{"charts.Germany": {{"$exists": true}}}}, "limit": 10, "description": "Songs that charted in Germany"}}
-- "trending in Germany in July" → {{"filters": {{"charts.Germany": {{"$exists":true}}, "first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-01"}}}}, "limit": 10, "description": "Songs trending in Germany during July 2025 using first_seen and last_seen"}}
-- "popular in Brazil in March" → {{"filters": {{"charts.Brazil": {{"$exists": true}}, "first_seen": {{"$lte": "2025-04-01"}}, "last_seen": {{"$gte": "2025-03-01"}}}}, "limit": 15, "description": "Songs popular in Brazil during March 2025 using first_seen and last_seen"}}
+- "in Germany" → {{"filters": {{"trend_countries": "Germany"}}, "limit": 10, "description": "Songs that trended in Germany"}}
+- "trending in Germany in July" → {{"filters": {{"trend_countries": "Germany", "first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-01"}}}}, "limit": 10, "description": "Songs trending in Germany during July 2025 using first_seen and last_seen"}}
+- "popular in Brazil in March" → {{"filters": {{"trend_countries": "Brazil", "first_seen": {{"$lte": "2025-04-01"}}, "last_seen": {{"$gte": "2025-03-01"}}}}, "limit": 15, "description": "Songs popular in Brazil during March 2025 using first_seen and last_seen"}}
 - "Latin songs" → {{"filters": {{"genres": "latin"}}, "limit": 10, "description": "Latin genre songs"}}
 - "Spanish lyrics" → {{"filters": {{"language_code": "spa"}}, "limit": 10, "description": "Songs with Spanish lyrics"}}
 - "songs trending on the first week of August" → {{"filters": {{"first_seen": {{"$lte": "2025-08-01"}}, "last_seen": {{"$gte": "2025-07-25"}}}}, "limit": 10, "description": "Songs trending on the first week of August using first_seen and last_seen"}}
-- "songs trenidng in Germany/Brazil/Argentina (or)" → {{"filters": {{"$or": [{{"charts.Germany": {{"$exists": true}}}}, {{"charts.Brazil": {{"$exists": true}}}}, {{"charts.Argentina": {{"$exists": true}}}}]}}, "limit": 10, "description": "Songs trending in Germany/Brazil/Argentina"}}
+- "songs trending in Germany/Brazil/Argentina (or)" → {{"filters": {{"$or": [{{"trend_countries": "Germany"}}, {{"trend_countries": "Brazil"}}, {{"trend_countries": "Argentina"}}]}}, "limit": 10, "description": "Songs trending in Germany/Brazil/Argentina"}}
 """
         
         import openai
