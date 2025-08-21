@@ -233,19 +233,23 @@ async def search(req: SearchRequest):
                         enriched_result["trend_description"] = trend_doc.get("oneliner", "") or trend_doc.get("trend_description", "")
                         enriched_result["category"] = trend_doc.get("category", "")  # Add category field
                         enriched_result["nature"] = trend_doc.get("nature", "")  # Add nature field for sorting
+                        enriched_result["special"] = trend_doc.get("special", "")  # Add special flag for ordering
                     else:
                         enriched_result["trend_description"] = ""
                         enriched_result["category"] = ""
                         enriched_result["nature"] = ""
+                        enriched_result["special"] = ""
                 except Exception as e:
                     print(f"[WARNING] Failed to fetch trend description for song_id {result.get('song_id')}: {e}")
                     enriched_result["trend_description"] = ""
                     enriched_result["category"] = ""
                     enriched_result["nature"] = ""
+                    enriched_result["special"] = ""
             else:
                 enriched_result["trend_description"] = ""
                 enriched_result["category"] = ""
                 enriched_result["nature"] = ""
+                enriched_result["special"] = ""
             
             # Get video_count from TOP_TIKTOK_SOUNDS collection
             try:
@@ -260,19 +264,28 @@ async def search(req: SearchRequest):
             
             enriched_results.append(enriched_result)
 
-        # Sort results: "trend" nature comes first, then "collection", then others
-        # Within each nature group, sort by video_count (descending - highest first)
+        # Sort results with the following priority:
+        # 1) nature=="trend" and special=="special"
+        # 2) nature=="trend" and special not equal to "special" (including missing)
+        # 3) nature=="collection"
+        # 4) others
+        # Within each group, sort by video_count descending
         def sort_by_nature_and_video_count(result):
             nature = result.get("nature", "")
             video_count = result.get("video_count", 0)
+            special_value = str(result.get("special", "")).lower()
             
             # First level: nature priority
             if nature == "trend":
-                nature_priority = 0  # Highest priority
+                # Sub-priority for trend based on special flag
+                if special_value == "special":
+                    nature_priority = 0
+                else:
+                    nature_priority = 1
             elif nature == "collection":
-                nature_priority = 1  # Medium priority
+                nature_priority = 2
             else:
-                nature_priority = 2  # Lower priority
+                nature_priority = 3
             
             # Return tuple for two-level sorting: (nature_priority, -video_count)
             # Negative video_count for descending order (highest first)
