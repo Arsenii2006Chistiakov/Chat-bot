@@ -1647,7 +1647,7 @@ Return a JSON object with the following structure:
 }}
 
 IMPORTANT
-- Always use TREND_STATUS = "EXISTS"
+- Always use TREND_STATUS = "EXISTS" (exact field name, case sensitive)
 - country names are always full names like "United States" or "United Kingdom" or "United Arab Emirates"
 - genres are always lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
 - use trend_countries array for country filtering
