@@ -679,9 +679,11 @@ Provide only the JSON output. Do not include any other text or explanation.
         
         try:
             # Make API call to OpenAI
+            current_datetime = datetime.now().isoformat()
             response = client.chat.completions.create(
                 model="gpt-4.1-nano",
                 messages=[
+                    {"role": "system", "content": f"Current datetime: {current_datetime}"},
                     {"role": "system", "content": "You are an expert at converting natural language questions into structured MongoDB queries. Provide only JSON output."},
                     {"role": "user", "content": prompt}
                 ],
@@ -1180,9 +1182,11 @@ Be specific, detailed, and use the context data to support your analysis.
             client = openai.OpenAI(api_key=self.query_generator.api_key)
             
             # Use o3-mini for deep reasoning
+            current_datetime = datetime.now().isoformat()
             response = client.chat.completions.create(
                 model="o3-mini",
                 messages=[
+                    {"role": "system", "content": f"Current datetime: {current_datetime}"},
                     {"role": "system", "content": "You are an expert music analyst and cultural researcher. Provide deep, insightful analysis using the context data provided."},
                     {"role": "user", "content": analysis_prompt}
                 ],
@@ -1479,9 +1483,11 @@ Respond with ONLY the category name: help, talk, search, or analysis
         
         try:
             # Make API call to OpenAI with cheaper model
+            current_datetime = datetime.now().isoformat()
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
+                    {"role": "system", "content": f"Current datetime: {current_datetime}"},
                     {"role": "system", "content": "You are a simple categorizer. Respond with only one word: help, talk, search, or analysis."},
                     {"role": "user", "content": prompt}
                 ],
@@ -1563,9 +1569,11 @@ Respond naturally as if you're having a conversation with the user.
         
         try:
             # Make API call to OpenAI
+            current_datetime = datetime.now().isoformat()
             response = client.chat.completions.create(
                 model="gpt-4.1-nano",
                 messages=[
+                    {"role": "system", "content": f"Current datetime: {current_datetime}"},
                     {"role": "system", "content": "You are a friendly music database assistant. Keep responses concise and helpful."},
                     {"role": "user", "content": prompt}
                 ],
@@ -1667,9 +1675,11 @@ Examples:
         
         try:
             # Make API call to OpenAI
+            current_datetime = datetime.now().isoformat()
             response = client.chat.completions.create(
                 model="gpt-4.1-nano",
                 messages=[
+                    {"role": "system", "content": f"Current datetime: {current_datetime}"},
                     {"role": "system", "content": "You are an expert at converting natural language search requests into MongoDB query parameters. Provide only JSON output."},
                     {"role": "user", "content": prompt}
                 ],
@@ -1754,9 +1764,11 @@ Provide only the JSON output. Do not include any other text or explanation.
         
         try:
             # Make API call to OpenAI
+            current_datetime = datetime.now().isoformat()
             response = client.chat.completions.create(
                 model="gpt-4.1-nano",
                 messages=[
+                    {"role": "system", "content": f"Current datetime: {current_datetime}"},
                     {"role": "system", "content": "You are an expert at determining which embeddings should be used for music database searches. Provide only JSON output."},
                     {"role": "user", "content": prompt}
                 ],
