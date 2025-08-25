@@ -1624,9 +1624,8 @@ Assistant: Found 10 results....
 New user message: find the ones which were trending in Spain
 -> the previous search fields should be used: genres:phonk, charts.Spain:{{$exists:true}}
 
-here is the previous search context:
-{context_section}
 
+{context_section}
 
 Available fields in the database:
 - genres: lowercase, Array of strings (e.g., ["latin", "pop", "rkt"])
@@ -1647,7 +1646,7 @@ Return a JSON object with the following structure:
 }}
 
 IMPORTANT
-- Always use TREND_STATUS = "EXISTS" (exact field name, case sensitive)
+- Always use TREND_STATUS = "EXISTS" (exact field name, case sensitive - not "trend_status":"EXISTS")
 - country names are always full names like "United States" or "United Kingdom" or "United Arab Emirates"
 - genres are always lowercase, usually with a space between words: hip hop, r&b, electronic dance music, etc.
 - use trend_countries array for country filtering
