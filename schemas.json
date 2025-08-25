@@ -1,0 +1,64 @@
+{
+    "response_search":
+    {
+        "success": "boolean",
+        "message": "string",
+        "results": [
+          {
+            "song_name": "string",
+            "artist_name": "string",
+            "song_id": "string",
+            "genres": [
+              "string"
+            ],
+            "TREND_STATUS": "string",
+            "gcs_path": "string",
+            "sound_link": "string",
+            "trend_description": "string",
+            "category": "string",
+            "nature": "string",
+            "special": "string",
+            "video_count": "integer"
+          }
+        ],
+        "search_info": {
+          "embedding_decision": {
+            "use_music_embedding": "boolean",
+            "use_text_embedding": "boolean",
+            "search_type": "string",
+            "reasoning": "string"
+          },
+          "search_params": {
+            "filters": {
+              "trend_countries": "string",
+              "TREND_STATUS": "string"
+            },
+            "limit": "integer",
+            "description": "string"
+          },
+          "search_type": "string",
+          "result_count": "integer"
+        },
+        "count": "integer"
+      }
+      ,
+      "response_info":
+      {
+        "success": "boolean",
+        "message": "string",
+        "song_id": "string",
+        "trend_description": "string",
+        "detailed_description": "string",
+        "category": "string",
+        "video_gcs_uris": [
+          "string"
+        ],
+        "tiktok_uris": [
+          "string"
+        ],
+        "video_count": "integer"
+      }
+
+
+
+}
